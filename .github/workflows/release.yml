@@ -1,0 +1,207 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag (e.g. v0.2.0). Defaults to version in src-tauri/Cargo.toml."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.88.0
+          targets: x86_64-pc-windows-msvc
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      - name: Resolve version
+        id: meta
+        shell: pwsh
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          $isTagPush = "${{ github.ref }}".StartsWith("refs/tags/")
+          $isDispatch = "${{ github.event_name }}" -eq "workflow_dispatch"
+
+          if ($isTagPush) {
+            $version = "${{ github.ref_name }}"
+          } elseif ($isDispatch -and -not [string]::IsNullOrWhiteSpace($env:DISPATCH_VERSION)) {
+            $version = $env:DISPATCH_VERSION.Trim()
+            if ($version -notmatch '^v') { $version = "v$version" }
+          } else {
+            $cargo = Get-Content src-tauri/Cargo.toml -Raw
+            if ($cargo -match 'version\s*=\s*"([^"]+)"') {
+              $version = "v$($Matches[1])"
+            } else {
+              Write-Error "Could not read version from src-tauri/Cargo.toml"
+              exit 1
+            }
+          }
+
+          $short = $version.TrimStart('v')
+          $cargo = Get-Content src-tauri/Cargo.toml -Raw
+          if ($cargo -notmatch 'version\s*=\s*"([^"]+)"') {
+            Write-Error "Could not read version from src-tauri/Cargo.toml"
+            exit 1
+          }
+          $cargoVersion = $Matches[1]
+          if ($cargoVersion -ne $short) {
+            Write-Error "Tag version $version does not match Cargo.toml ($cargoVersion). Bump src-tauri/Cargo.toml and tauri.conf.json first."
+            exit 1
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "short=$short" >> $env:GITHUB_OUTPUT
+          "tag_name=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Building release $version (Cargo.toml $cargoVersion)"
+
+      - name: Install frontend tooling
+        run: npm ci
+
+      - name: Pin build dependencies
+        working-directory: src-tauri
+        shell: bash
+        run: |
+          # time 0.3.48 fails to compile on 1.88; keep these pinned even if the lockfile drifts.
+          cargo update -p time --precise 0.3.47
+          cargo update -p plist --precise 1.7.0
+
+      - name: Verify icons
+        shell: pwsh
+        run: |
+          foreach ($icon in @("src-tauri/icons/32x32.png", "src-tauri/icons/128x128.png", "src-tauri/icons/icon.ico")) {
+            if (-not (Test-Path $icon)) { Write-Error "Missing icon: $icon"; exit 1 }
+          }
+
+      - name: Build app (Tauri)
+        run: npm run build
+
+      - name: Package installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $setup = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          if (-not $setup) { Write-Error "No NSIS installer found in src-tauri/target/release/bundle/nsis/"; exit 1 }
+          $name = "archievable-${{ steps.meta.outputs.version }}-setup.exe"
+          Copy-Item $setup.FullName "dist/$name"
+          "asset_name=$name" >> $env:GITHUB_ENV
+          "asset_path=dist/$name" >> $env:GITHUB_ENV
+          Write-Host "Packaged $($setup.FullName) -> dist/$name"
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag_name }}
+          ASSET: ${{ env.asset_path }}
+        run: |
+          set -euo pipefail
+          TARGET="${{ github.sha }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists — uploading asset"
+            gh release upload "$TAG" "$ASSET" --clobber
+          else
+            echo "Creating release $TAG at $TARGET"
+            gh release create "$TAG" \
+              --target "$TARGET" \
+              --title "$TAG" \
+              --generate-notes \
+              "$ASSET"
+          fi
+          gh release view "$TAG"
+
+      - name: Post release to Discord
+        shell: pwsh
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          TAG_NAME: ${{ steps.meta.outputs.tag_name }}
+          REPO: ${{ github.repository }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ASSET_NAME: ${{ env.asset_name }}
+          ASSET_PATH: ${{ env.asset_path }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:DISCORD_WEBHOOK_URL)) {
+            Write-Error "DISCORD_WEBHOOK_URL secret is not set. Add it in repo Settings → Secrets → Actions."
+            exit 1
+          }
+
+          $releaseUrl = "$env:REPO_URL/releases/tag/$env:TAG_NAME"
+          $shaShort = $env:SHA.Substring(0, [Math]::Min(7, $env:SHA.Length))
+
+          $embed = @{
+            title = "Release $env:VERSION"
+            url = $releaseUrl
+            description = @"
+          A new **archievable** build is ready.
+
+          Download the Windows installer attached below, run it, then open the app.
+          "@.Trim()
+            color = 5763719
+            fields = @(
+              @{ name = "Version"; value = "``$env:VERSION``"; inline = $true }
+              @{ name = "Platform"; value = "Windows x64"; inline = $true }
+              @{ name = "File"; value = "``$env:ASSET_NAME``"; inline = $true }
+              @{
+                name = "Commit"
+                value = "[``$shaShort``]($env:REPO_URL/commit/$env:SHA)"
+                inline = $false
+              }
+            )
+            footer = @{ text = "$env:REPO • Built by GitHub Actions" }
+            timestamp = (Get-Date).ToUniversalTime().ToString("o")
+          }
+
+          $payload = @{
+            username = "GitHub"
+            avatar_url = "https://avatars.githubusercontent.com/u/9919?s=200&v=4"
+            embeds = @($embed)
+          }
+
+          $payloadJson = $payload | ConvertTo-Json -Depth 12 -Compress
+          $payloadFile = Join-Path $env:RUNNER_TEMP "discord-payload.json"
+          [System.IO.File]::WriteAllText($payloadFile, $payloadJson, [System.Text.UTF8Encoding]::new($false))
+
+          Write-Host "Uploading $env:ASSET_PATH to Discord..."
+          & curl.exe -sS -f `
+            -F "payload_json=<$payloadFile" `
+            -F "file=@$env:ASSET_PATH;filename=$env:ASSET_NAME" `
+            $env:DISCORD_WEBHOOK_URL
+
+          Write-Host "Discord notification sent."

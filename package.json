@@ -1,0 +1,14 @@
+{
+  "name": "archievable",
+  "version": "0.2.1",
+  "private": true,
+  "description": "archievable.shop Steam cache login desktop app",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

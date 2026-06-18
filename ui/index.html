@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>archievable</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="bar">
+        <span class="title">archievable</span>
+        <div class="bar-actions">
+          <button id="refreshBtn" class="btn">Refresh</button>
+          <button id="importBtn" class="btn btn-accent">Import</button>
+        </div>
+      </header>
+
+      <main class="list-wrap">
+        <div id="accountList" class="list"></div>
+        <div id="emptyState" class="empty hidden">No accounts.</div>
+      </main>
+
+      <footer class="bar bar-foot">
+        <button id="settingsBtn" class="btn btn-gear" title="Settings" aria-label="Settings">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+        <button id="dangerBtn" class="btn btn-text">Reset cache</button>
+      </footer>
+    </div>
+
+    <div id="toastWrap" class="toast-wrap"></div>
+
+    <div id="importModal" class="overlay hidden">
+      <div class="dialog">
+        <div class="dialog-head">
+          <span>Import</span>
+          <button class="btn-icon" data-action="close-import">&times;</button>
+        </div>
+        <textarea
+          id="importInput"
+          spellcheck="false"
+          placeholder="One code per line"
+        ></textarea>
+        <div class="dialog-foot">
+          <button id="pasteBtn" class="btn">Paste</button>
+          <button id="doImportBtn" class="btn btn-accent">Import</button>
+        </div>
+        <div id="importStatus" class="dialog-msg"></div>
+      </div>
+    </div>
+
+    <div id="confirmModal" class="overlay hidden">
+      <div class="dialog dialog-sm">
+        <div class="dialog-head">
+          <span id="confirmTitle">Confirm</span>
+          <button class="btn-icon" data-action="close-confirm">&times;</button>
+        </div>
+        <p id="confirmText" class="dialog-text"></p>
+        <div class="dialog-foot">
+          <button class="btn" data-action="close-confirm">Cancel</button>
+          <button id="confirmYes" class="btn btn-danger">Confirm</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="settingsModal" class="overlay hidden">
+      <div class="dialog dialog-settings">
+        <div class="dialog-head">
+          <span>Settings</span>
+          <button class="btn-icon" data-action="close-settings">&times;</button>
+        </div>
+        <div class="settings-list">
+          <label class="setting-row">
+            <span class="setting-info">
+              <span class="setting-label">Always start Invisible</span>
+              <span class="setting-desc">Log in as Invisible, not Online or Idle.</span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="always_invisible" />
+          </label>
+          <label class="setting-row">
+            <span class="setting-info">
+              <span class="setting-label">Cancel downloads on login</span>
+              <span class="setting-desc">Pause active downloads when signing in. Workshop may still queue.</span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="cancel_downloads_on_login" />
+          </label>
+          <label class="setting-row">
+            <span class="setting-info">
+              <span class="setting-label">Streamer mode</span>
+              <span class="setting-desc">Hide usernames and Steam IDs in this app and tray. Avatars stay visible.</span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="streamer_mode" />
+          </label>
+          <label class="setting-row">
+            <span class="setting-info">
+              <span class="setting-label">Launch Steam minimized</span>
+              <span class="setting-desc">Start Steam in the background after sign-in.</span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="launch_steam_minimized" />
+          </label>
+          <label class="setting-row">
+            <span class="setting-info">
+              <span class="setting-label">Mute notifications on login</span>
+              <span class="setting-desc">Disable friend online/message notifications in Steam.</span>
+            </span>
+            <input type="checkbox" class="toggle" data-setting="mute_notifications_on_login" />
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <script src="main.js"></script>
+  </body>
+</html>

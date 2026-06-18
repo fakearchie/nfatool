@@ -1,0 +1,39 @@
+# Rust / Tauri
+/target/
+src-tauri/target/
+**/*.rs.bk
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Env / secrets
+.env
+.env.*
+
+# Binaries / installers (built by CI)
+*.exe
+*.pdb
+*.msi
+*.nsis
+
+# Logs & temp
+*.log
+*.tmp
+err.txt
+out.txt
+
+# Cursor / local
+.cursor/
