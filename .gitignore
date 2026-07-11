@@ -37,3 +37,6 @@ out.txt
 
 # Cursor / local
 .cursor/
+
+# Tauri generated (regenerated on build)
+src-tauri/gen/
