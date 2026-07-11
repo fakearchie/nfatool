@@ -3,6 +3,7 @@ const listen = window.__TAURI__.event.listen;
 
 const el = (id) => document.getElementById(id);
 const accountList = el("accountList");
+const accountCount = el("accountCount");
 const emptyState = el("emptyState");
 const toastWrap = el("toastWrap");
 
@@ -16,12 +17,16 @@ let settings = {
   mute_notifications_on_login: false,
 };
 
+const SIGNIN_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg>';
+const TRASH_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+
 function toast(message, kind = "ok") {
   const node = document.createElement("div");
   node.className = "toast " + kind;
   node.textContent = message;
   toastWrap.appendChild(node);
-
   setTimeout(() => {
     node.style.opacity = "0";
     node.style.transition = "opacity 0.2s ease";
@@ -31,6 +36,15 @@ function toast(message, kind = "ok") {
 
 function formatError(e) {
   return typeof e === "string" ? e : String(e);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+  );
+}
+function escapeAttr(s) {
+  return escapeHtml(s);
 }
 
 function displayAccount(acc, index) {
@@ -43,47 +57,36 @@ function displayAccount(acc, index) {
 }
 
 function render() {
+  accountCount.textContent = accounts.length ? String(accounts.length) : "";
+
   if (accounts.length === 0) {
     accountList.innerHTML = "";
     emptyState.classList.remove("hidden");
     return;
   }
   emptyState.classList.add("hidden");
-  accountList.innerHTML = "";
 
-  accounts.forEach((acc, index) => {
-    const view = displayAccount(acc, index);
-    const row = document.createElement("div");
-    row.className = "row" + (acc.most_recent ? " is-recent" : "");
-
-    const avatar = view.avatar
-      ? `<div class="avatar"><img src="${view.avatar}" alt="" /></div>`
-      : `<div class="avatar">${escapeHtml(view.initials)}</div>`;
-
-    const tag = acc.most_recent ? '<span class="row-tag">last used</span>' : "";
-
-    row.innerHTML = `
-      ${avatar}
-      <div class="row-info">
-        <div class="row-name">${escapeHtml(view.display_name)}${tag}</div>
-        <div class="row-login">${escapeHtml(view.account_name)}</div>
-      </div>
-      <div class="row-actions">
-        <button class="btn btn-accent" data-signin="${escapeAttr(acc.steamid)}">Sign in</button>
-        <button class="btn btn-danger" data-remove="${escapeAttr(acc.steamid)}">Remove</button>
-      </div>
-    `;
-    accountList.appendChild(row);
-  });
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
-  );
-}
-function escapeAttr(s) {
-  return escapeHtml(s);
+  accountList.innerHTML = accounts
+    .map((acc, index) => {
+      const view = displayAccount(acc, index);
+      const avatar = view.avatar
+        ? `<div class="avatar"><img src="${escapeAttr(view.avatar)}" alt="" /></div>`
+        : `<div class="avatar">${escapeHtml(view.initials)}</div>`;
+      const tag = acc.most_recent ? '<span class="row-tag">Last used</span>' : "";
+      return `
+        <div class="row">
+          ${avatar}
+          <div class="row-info">
+            <div class="row-name"><span>${escapeHtml(view.display_name)}</span>${tag}</div>
+            <div class="row-login">${escapeHtml(view.account_name)}</div>
+          </div>
+          <div class="row-actions">
+            <button class="icon-btn primary" data-signin="${escapeAttr(acc.steamid)}" title="Sign in" aria-label="Sign in as ${escapeAttr(view.display_name)}">${SIGNIN_SVG}</button>
+            <button class="icon-btn danger" data-remove="${escapeAttr(acc.steamid)}" title="Remove" aria-label="Remove account">${TRASH_SVG}</button>
+          </div>
+        </div>`;
+    })
+    .join("");
 }
 
 async function refresh() {
@@ -97,6 +100,7 @@ async function refresh() {
   }
 }
 
+/* ---------- Import ---------- */
 const importModal = el("importModal");
 const importInput = el("importInput");
 const importStatus = el("importStatus");
@@ -135,7 +139,7 @@ async function importManual() {
     return;
   }
 
-  importStatus.textContent = "Importing\u2026";
+  importStatus.textContent = "Importing…";
   importStatus.className = "dialog-msg";
 
   try {
@@ -144,12 +148,12 @@ async function importManual() {
     await refresh();
     toast(msg, "ok");
   } catch (e) {
-    const err = formatError(e);
-    importStatus.textContent = err;
+    importStatus.textContent = formatError(e);
     importStatus.className = "dialog-msg err";
   }
 }
 
+/* ---------- Account actions ---------- */
 async function signIn(steamid) {
   try {
     const msg = await invoke("sign_in", { steamid });
@@ -182,7 +186,7 @@ function askRemove(steamid) {
 function askClearSteam() {
   openConfirm(
     "Reset cache",
-    "Clear Steam login data on this PC?",
+    "Clear Steam's cached login tokens on this PC? Your saved accounts stay here and can sign in again.",
     "Reset",
     async () => {
       try {
@@ -196,6 +200,7 @@ function askClearSteam() {
   );
 }
 
+/* ---------- Confirm ---------- */
 const confirmModal = el("confirmModal");
 function openConfirm(title, text, label, handler) {
   el("confirmTitle").textContent = title;
@@ -203,24 +208,29 @@ function openConfirm(title, text, label, handler) {
   el("confirmYes").textContent = label;
   confirmHandler = handler;
   confirmModal.classList.remove("hidden");
+  setTimeout(
+    () => confirmModal.querySelector('.btn[data-action="close-confirm"]')?.focus(),
+    50
+  );
 }
 function closeConfirm() {
   confirmModal.classList.add("hidden");
   confirmHandler = null;
 }
 
+/* ---------- Settings ---------- */
 const settingsModal = el("settingsModal");
 
 function syncSettingsForm() {
   for (const input of settingsModal.querySelectorAll("[data-setting]")) {
-    const key = input.dataset.setting;
-    input.checked = Boolean(settings[key]);
+    input.checked = Boolean(settings[input.dataset.setting]);
   }
 }
 
 function openSettings() {
   syncSettingsForm();
   settingsModal.classList.remove("hidden");
+  setTimeout(() => settingsModal.querySelector(".toggle")?.focus(), 50);
 }
 
 function closeSettings() {
@@ -255,13 +265,28 @@ function onSettingToggle(e) {
   persistSettings();
 }
 
+/* ---------- Wiring ---------- */
 el("importBtn").addEventListener("click", openImport);
+el("emptyImportBtn").addEventListener("click", openImport);
 el("pasteBtn").addEventListener("click", pasteIntoImport);
 el("refreshBtn").addEventListener("click", () => refresh());
 el("doImportBtn").addEventListener("click", importManual);
 el("dangerBtn").addEventListener("click", askClearSteam);
 el("settingsBtn").addEventListener("click", openSettings);
 settingsModal.addEventListener("change", onSettingToggle);
+
+// Custom titlebar window controls (frameless window).
+const tauriWin = window.__TAURI__ && window.__TAURI__.window;
+const appWindow = tauriWin
+  ? tauriWin.getCurrentWindow
+    ? tauriWin.getCurrentWindow()
+    : tauriWin.getCurrent && tauriWin.getCurrent()
+  : null;
+if (appWindow) {
+  el("winMin").addEventListener("click", () => appWindow.minimize());
+  el("winMax").addEventListener("click", () => appWindow.toggleMaximize());
+  el("winClose").addEventListener("click", () => appWindow.close());
+}
 el("confirmYes").addEventListener("click", () => {
   const fn = confirmHandler;
   closeConfirm();
@@ -288,6 +313,7 @@ document.addEventListener("click", (e) => {
     if (e.target === m) m.classList.add("hidden");
   });
 });
+
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     closeImport();
