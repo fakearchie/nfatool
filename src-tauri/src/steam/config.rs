@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use crate::settings::AppSettings;
 
@@ -492,26 +491,12 @@ pub(crate) fn apply_localconfig_settings(
         content = patch_friends_notifications(&content);
     }
 
-    if settings.cancel_downloads_on_login {
-        content = patch_download_settings(&content);
-    }
-
     let parent = path
         .parent()
         .ok_or("Failed to resolve userdata config directory")?;
     fs::create_dir_all(parent).map_err(|_| "Failed to create userdata config directory")?;
     fs::write(&path, content).map_err(|_| "Failed to write localconfig.vdf")?;
     Ok(path)
-}
-
-pub(crate) fn schedule_download_pause_retry(path: PathBuf) {
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_secs(5));
-        if let Ok(content) = fs::read_to_string(&path) {
-            let patched = patch_download_settings(&content);
-            let _ = fs::write(&path, patched);
-        }
-    });
 }
 
 fn minimal_localconfig_template(steamid3: &str, persona_state: u8) -> String {
@@ -589,27 +574,15 @@ fn patch_friends_notifications(content: &str) -> String {
     patched
 }
 
-fn patch_download_settings(content: &str) -> String {
-    replace_vdf_key_line(content, "AllowDownloadsDuringGameplay", "0")
-}
-
-pub(crate) fn delete_steam_files_and_folder(
-    config_dir: &Path,
-    steam_base_dir: &Path,
-) -> Result<(), String> {
-    let config_vdf = config_dir.join("config.vdf");
-    let loginusers_vdf = config_dir.join("loginusers.vdf");
-
-    if config_vdf.exists() {
-        fs::remove_file(&config_vdf).map_err(|e| format!("Failed to delete config.vdf: {e}"))?;
-    }
-    if loginusers_vdf.exists() {
-        fs::remove_file(&loginusers_vdf)
-            .map_err(|e| format!("Failed to delete loginusers.vdf: {e}"))?;
-    }
-    if steam_base_dir.exists() {
-        fs::remove_dir_all(steam_base_dir)
-            .map_err(|e| format!("Failed to delete Steam folder and contents: {e}"))?;
+// Clear only the cached login tokens (%LOCALAPPDATA%\Steam\local.vdf ConnectCache),
+// which signs Steam out on this PC. Deliberately does NOT touch config.vdf /
+// loginusers.vdf or delete the rest of the Steam local cache (htmlcache, logs,
+// depotcache, …) — the old "delete the whole folder" behaviour was destructive and
+// left saved accounts unrecoverable.
+pub(crate) fn clear_login_cache(steam_base_dir: &Path) -> Result<(), String> {
+    let local_vdf = steam_base_dir.join("local.vdf");
+    if local_vdf.exists() {
+        fs::remove_file(&local_vdf).map_err(|e| format!("Failed to clear login cache: {e}"))?;
     }
     Ok(())
 }

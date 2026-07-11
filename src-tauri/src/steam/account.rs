@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -13,6 +14,10 @@ pub struct SteamAccount {
     pub avatar_path: Option<PathBuf>,
     pub most_recent: bool,
     pub timestamp: Option<String>,
+    // Raw JWT from our own store, when available. Never sent to the frontend;
+    // used to re-provision Steam on sign-in. None for accounts we only see in
+    // Steam's loginusers.vdf (e.g. imported before token persistence).
+    pub token: Option<String>,
 }
 
 impl SteamAccount {
@@ -44,10 +49,40 @@ pub fn load_steam_accounts() -> Result<Vec<SteamAccount>, String> {
     let steam_path = get_steam_path()?;
     let steam_path = Path::new(&steam_path);
     let loginusers_path = steam_path.join("config").join("loginusers.vdf");
-    let content = fs::read_to_string(&loginusers_path)
-        .map_err(|_| "Could not read Steam loginusers.vdf. Open Steam once first.".to_string())?;
+    // Missing/unreadable loginusers.vdf is not fatal — our own records below may
+    // still list accounts (e.g. right after a login-cache reset).
+    let content = fs::read_to_string(&loginusers_path).unwrap_or_default();
 
     let mut accounts = parse_loginusers(&content);
+
+    // Merge the app's persistent records: attach stored tokens to known accounts,
+    // and surface any saved account Steam has since forgotten so it can be signed
+    // back in from its token.
+    let records = super::tokens::load_records();
+    let mut seen: HashSet<String> = accounts.iter().map(|a| a.steamid.clone()).collect();
+    for account in &mut accounts {
+        if let Some(rec) = records.get(&account.steamid) {
+            account.token = Some(rec.token.clone());
+            if account.account_name.is_empty() {
+                account.account_name = rec.account_name.clone();
+            }
+            if account.persona_name.is_empty() {
+                account.persona_name = rec.persona_name.clone();
+            }
+        }
+    }
+    for (steamid, rec) in &records {
+        if seen.insert(steamid.clone()) {
+            accounts.push(SteamAccount {
+                steamid: steamid.clone(),
+                account_name: rec.account_name.clone(),
+                persona_name: rec.persona_name.clone(),
+                token: Some(rec.token.clone()),
+                ..Default::default()
+            });
+        }
+    }
+
     for account in &mut accounts {
         account.avatar_path = find_avatar_path(steam_path, account);
     }

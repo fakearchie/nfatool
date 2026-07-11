@@ -1,9 +1,11 @@
 mod account;
 mod config;
 mod crypto;
+mod downloads;
 mod import;
 mod paths;
 mod process;
+mod tokens;
 mod vdf;
 
 pub use account::{load_steam_accounts, SteamAccount};
@@ -54,7 +56,7 @@ pub fn handle_batch_import(content: &str) -> Result<String, String> {
     if let Some((username, steamid)) = last {
         let settings = load_settings();
         apply_active_account(&username, &steamid, steam_path, &settings)?;
-        relaunch_steam(&steam_path_string, &steamid, &settings)?;
+        relaunch_steam(&steam_path_string, &settings)?;
     }
 
     let mut msg = format!("Imported {imported} accounts. Starting Steam.");
@@ -68,6 +70,7 @@ fn import_account_files(entry: &str, steam_path: &Path) -> Result<(String, Strin
     let (username, jwt) = import::parse_clipboard(entry)?;
     let steamid = import::extract_steamid_from_jwt(&jwt)?;
     config::write_account_files(&username, &jwt, &steamid, steam_path)?;
+    tokens::save_record(&steamid, &username, &username, &jwt);
     Ok((username, steamid))
 }
 
@@ -81,9 +84,10 @@ fn import_single_account(content: &str) -> Result<String, String> {
     process::stop_steam()?;
 
     config::write_account_files(&username, &jwt, &steamid, steam_path)?;
+    tokens::save_record(&steamid, &username, &username, &jwt);
     let settings = load_settings();
     apply_active_account(&username, &steamid, steam_path, &settings)?;
-    relaunch_steam(&steam_path_string, &steamid, &settings)?;
+    relaunch_steam(&steam_path_string, &settings)?;
 
     Ok(format!("Imported {username}. Starting Steam."))
 }
@@ -94,8 +98,17 @@ pub fn handle_login_account(account: &SteamAccount) -> Result<String, String> {
     let settings = load_settings();
 
     process::stop_steam()?;
+
+    // Re-provision the ConnectCache token + config.vdf from our stored copy on
+    // every sign-in, so switching works even if Steam's cache was cleared since
+    // import. Accounts imported before token persistence fall back to the flip.
+    if let Some(jwt) = &account.token {
+        config::check_steam_config_files(&steam_path.join("config"))?;
+        config::write_account_files(&account.account_name, jwt, &account.steamid, steam_path)?;
+    }
+
     apply_active_account(&account.account_name, &account.steamid, steam_path, &settings)?;
-    relaunch_steam(&steam_path_string, &account.steamid, &settings)?;
+    relaunch_steam(&steam_path_string, &settings)?;
 
     Ok(format!(
         "Signed in as {}. Starting Steam.",
@@ -130,17 +143,20 @@ pub fn handle_delete_account(account: &SteamAccount) -> Result<String, String> {
     }
 
     process::clear_autologin_if_matches(&account.account_name);
+    tokens::remove_record(&account.steamid);
 
     Ok(format!("Removed {}.", account.display_name()))
 }
 
 pub fn handle_clear_steam() -> Result<String, String> {
-    let steam_path = paths::get_steam_path()?;
-    let config_dir = Path::new(&steam_path).join("config");
+    // Non-destructive: wipe only the cached login tokens (local.vdf ConnectCache),
+    // which signs Steam out, while leaving the rest of %LOCALAPPDATA%\Steam and the
+    // account list intact. Saved accounts can be signed back in from their stored
+    // token, so this is recoverable rather than a full re-import.
     process::stop_steam()?;
     let base_path = paths::local_steam_cache_path()?;
-    config::delete_steam_files_and_folder(&config_dir, &base_path)?;
-    Ok("Steam cache cleared.".to_string())
+    config::clear_login_cache(&base_path)?;
+    Ok("Steam login cache cleared.".to_string())
 }
 
 fn apply_active_account(
@@ -152,18 +168,16 @@ fn apply_active_account(
     let loginusers_vdf = steam_path.join("config").join("loginusers.vdf");
     config::update_loginusers_vdf(&loginusers_vdf, username, steamid)?;
     config::apply_localconfig_settings(steamid, steam_path, settings)?;
+    if settings.cancel_downloads_on_login {
+        // Best-effort: defer background game updates so signing in doesn't kick
+        // off downloads. Runs while Steam is dead (we just stopped it).
+        downloads::defer_game_updates(steam_path);
+    }
     process::write_autologin_user(username)
 }
 
-fn relaunch_steam(steam_path: &str, steamid: &str, settings: &AppSettings) -> Result<(), String> {
+fn relaunch_steam(steam_path: &str, settings: &AppSettings) -> Result<(), String> {
     std::thread::sleep(Duration::from_millis(400));
-    let localconfig = paths::localconfig_path(
-        Path::new(steam_path),
-        &paths::steamid64_to_steamid3(steamid)?,
-    );
     process::launch_steam(steam_path, settings)?;
-    if settings.cancel_downloads_on_login {
-        config::schedule_download_pause_retry(localconfig);
-    }
     Ok(())
 }
