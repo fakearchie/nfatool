@@ -145,6 +145,7 @@ jobs:
           gh release view "$TAG"
 
       - name: Post release to Discord
+        continue-on-error: true
         shell: pwsh
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
