@@ -17,7 +17,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
-        .tooltip("archievable")
+        .tooltip("nfa.pub tool")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(handle_menu_event)
@@ -28,13 +28,21 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         let w = window.clone();
         let handle = app.clone();
         window.on_window_event(move |event| {
+            // Save before hiding: a hidden window reports a position we don't want
+            // to persist, and this is the last moment it is still on screen.
+            if matches!(
+                event,
+                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Moved(_)
+            ) {
+                crate::window_state::save(&w);
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = w.hide();
                 let _ = handle
                     .notification()
                     .builder()
-                    .title("archievable")
+                    .title("nfa.pub tool")
                     .body("Still running in the tray. Click the icon to reopen.")
                     .show();
             }
@@ -60,6 +68,8 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 
     let accounts = crate::steam::load_steam_accounts().unwrap_or_default();
     let streamer = crate::settings::load_settings().streamer_mode;
+    let meta = crate::metadata::load();
+    let now = crate::metadata::now_unix();
     let account_items: Vec<MenuItem<R>> = if accounts.is_empty() {
         vec![MenuItem::with_id(
             app,
@@ -73,7 +83,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             .iter()
             .enumerate()
             .map(|(idx, acc)| {
-                let label = if streamer {
+                let mut label = if streamer {
                     if acc.most_recent {
                         format!("Account {} *", idx + 1)
                     } else {
@@ -84,6 +94,17 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
                 } else {
                     truncate_name(acc.display_name(), 30)
                 };
+                // The tray is where you switch without opening the window, so it is
+                // exactly where you need to be told an account is still cooling down.
+                if let Some(m) = meta.get(&acc.steamid) {
+                    if m.on_cooldown(now) {
+                        let left = m.cooldown_until.unwrap_or(now) - now;
+                        label.push_str(&format!(
+                            "  ({} left)",
+                            crate::metadata::format_remaining(left)
+                        ));
+                    }
+                }
                 MenuItem::with_id(app, format!("signin:{}", acc.steamid), label, true, None::<&str>)
             })
             .collect::<tauri::Result<Vec<_>>>()?
@@ -125,6 +146,13 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
                     let _ = rebuild(app);
                     let _ = app.emit("accounts-changed", ());
                     show_window(app);
+                    // The message names the account; streamer mode exists to keep
+                    // that off the screen.
+                    let msg = if crate::settings::load_settings().streamer_mode {
+                        "Account imported.".to_string()
+                    } else {
+                        msg
+                    };
                     let _ = app.emit("status", msg);
                 }
                 Err(err) => {
@@ -139,10 +167,13 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
             if let Ok(accounts) = crate::steam::load_steam_accounts() {
                 if let Some(account) = accounts.into_iter().find(|a| a.steamid == steamid) {
                     match crate::steam::handle_login_account(&account) {
-                        Ok(msg) => {
+                        Ok(_) => {
+                            crate::metadata::touch_last_used(&account.steamid);
                             let _ = rebuild(app);
                             let _ = app.emit("accounts-changed", ());
-                            let _ = app.emit("status", msg);
+                            // Send the id, not a sentence: only the frontend knows
+                            // whether streamer mode should mask the name.
+                            let _ = app.emit("signed-in", account.steamid.clone());
                         }
                         Err(err) => {
                             let _ = app.emit("status-error", err);

@@ -23,59 +23,104 @@ fn silent_command(program: impl AsRef<OsStr>) -> Command {
 }
 
 pub(crate) fn stop_steam() -> Result<(), String> {
-    kill_steam_by_pid()?;
-    kill_steam_by_name()
+    // Both kills are best-effort. taskkill's failure text is localised — a German
+    // Windows reports "wurde nicht gefunden" for an already-dead process — so we
+    // never parse stderr. Whether Steam is actually gone is the only thing that
+    // matters, and we check that directly.
+    kill_steam_by_pid();
+    kill_steam_by_name();
+    if wait_until_gone() {
+        return Ok(());
+    }
+
+    // Surviving a normal kill means Steam is running elevated. Rather than make
+    // this whole app require administrator — which breaks WebView2 — escalate
+    // just the kill. The user sees one UAC prompt, and only in this case.
+    kill_steam_elevated();
+    if wait_until_gone() {
+        return Ok(());
+    }
+
+    Err("Steam is still running and could not be closed. Close Steam manually, then try again."
+        .to_string())
 }
 
-fn kill_steam_by_pid() -> Result<(), String> {
+fn wait_until_gone() -> bool {
+    for _ in 0..15 {
+        if !steam_is_running() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    false
+}
+
+/// Runs taskkill itself elevated via the shell's "runas" verb. Declining the UAC
+/// prompt simply leaves Steam running, which the caller reports as a plain error.
+fn kill_steam_elevated() {
+    let script = "$ErrorActionPreference='SilentlyContinue'; \
+foreach ($p in 'steam.exe','steamwebhelper.exe') { \
+Start-Process -FilePath 'taskkill' -ArgumentList '/F','/IM',$p,'/T' \
+-Verb RunAs -WindowStyle Hidden -Wait }";
+
+    let _ = silent_command("powershell")
+        .args(["-NoProfile", "-Command", script])
+        .output();
+}
+
+/// Image names are not localised, so looking for "steam.exe" in tasklist output
+/// works on any Windows language.
+fn steam_is_running() -> bool {
+    for process in ["steam.exe", "steamwebhelper.exe"] {
+        let running = silent_command("tasklist")
+            .args(["/FI", &format!("IMAGENAME eq {process}"), "/NH"])
+            .output()
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .to_lowercase()
+                    .contains(process)
+            })
+            .unwrap_or(false);
+        if running {
+            return true;
+        }
+    }
+    false
+}
+
+fn kill_steam_by_pid() {
     let hkcu = RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
-    let steam_key = match hkcu.open_subkey("SOFTWARE\\Valve\\Steam\\ActiveProcess") {
-        Ok(key) => key,
-        Err(_) => return Ok(()),
+    let Ok(steam_key) = hkcu.open_subkey("SOFTWARE\\Valve\\Steam\\ActiveProcess") else {
+        return;
     };
-    let pid: u32 = match steam_key.get_value("pid") {
-        Ok(pid) => pid,
-        Err(_) => return Ok(()),
+    let Ok(pid) = steam_key.get_value::<u32, _>("pid") else {
+        return;
     };
     if pid == 0 {
-        return Ok(());
+        return;
     }
 
-    let output = silent_command("taskkill")
+    let killed = silent_command("taskkill")
         .args(["/F", "/PID", &pid.to_string(), "/T"])
         .output()
-        .map_err(|e| format!("Failed to execute taskkill: {e}"))?;
-
-    if output.status.success() {
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if killed {
         std::thread::sleep(Duration::from_millis(800));
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
-    if stderr.contains("not found")
-        || stderr.contains("no running instance")
-        || stderr.contains("not running")
-    {
-        Ok(())
-    } else {
-        Err(format!(
-            "Failed to kill Steam process: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
     }
 }
 
-fn kill_steam_by_name() -> Result<(), String> {
+fn kill_steam_by_name() {
     for process in ["steam.exe", "steamwebhelper.exe"] {
-        let output = silent_command("taskkill")
+        let killed = silent_command("taskkill")
             .args(["/F", "/IM", process, "/T"])
             .output()
-            .map_err(|e| format!("Failed to execute taskkill: {e}"))?;
-        if output.status.success() {
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if killed {
             std::thread::sleep(Duration::from_millis(500));
         }
     }
-    Ok(())
 }
 
 pub(crate) fn launch_steam(steam_path: &str, settings: &AppSettings) -> Result<(), String> {
@@ -86,6 +131,11 @@ pub(crate) fn launch_steam(steam_path: &str, settings: &AppSettings) -> Result<(
     let mut cmd = Command::new(&exe);
     if settings.launch_steam_minimized {
         cmd.arg("-silent");
+    }
+    if settings.launch_cs2_on_login {
+        // Steam queues the launch until it has finished signing in, so this works
+        // on the same invocation rather than needing a second, timed one.
+        cmd.arg("-applaunch").arg(crate::steam::cs2::APPID);
     }
     cmd.creation_flags(DETACHED_PROCESS)
         .spawn()

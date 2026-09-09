@@ -7,7 +7,7 @@ use super::crypto::{compute_crc32, steam_encrypt};
 use super::paths::{local_steam_cache_path, localconfig_path, steamid64_to_steamid3};
 use super::vdf::{
     byte_offset_of_line, find_vdf_key_block_body_start, line_indent, quoted_fields,
-    replace_vdf_key_line, validate_vdf_value,
+    replace_vdf_key_line, set_nested_key, validate_vdf_value,
 };
 
 pub(crate) fn check_steam_config_files(config_dir: &Path) -> Result<(), String> {
@@ -56,6 +56,98 @@ fn inject_account_into_config(path: &Path, username: &str, steamid: &str) -> Res
 
     fs::write(path, content).map_err(|_| "Failed to write config.vdf")?;
     Ok(())
+}
+
+/// Steam keeps showing its own account picker at startup while
+/// `InstallConfigStore/Software/Valve/Steam/AlwaysShowUserChooser` is `"1"` —
+/// which defeats the point of switching from here, since you end up choosing the
+/// account twice. Force it off whenever we hand Steam an account.
+///
+/// Best effort: a config.vdf we can't make sense of is left alone rather than
+/// mangled, since `AutoLoginUser` alone still gets most people signed straight in.
+pub(crate) fn disable_user_chooser(path: &Path) -> Result<(), String> {
+    let content = fs::read_to_string(path).map_err(|_| "Failed to read config.vdf")?;
+    if let Some(updated) = with_user_chooser_off(&content) {
+        fs::write(path, updated).map_err(|_| "Failed to write config.vdf")?;
+    }
+    Ok(())
+}
+
+/// Returns the patched file, or `None` when it is already off or there is no
+/// Steam block to patch. Splices by byte range so the rest of the file — including
+/// its line endings — is preserved exactly.
+fn with_user_chooser_off(content: &str) -> Option<String> {
+    const KEY: &str = "AlwaysShowUserChooser";
+
+    if let Some(pos) = content.find(KEY) {
+        let line_start = content[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let line_end = content[pos..]
+            .find('\n')
+            .map(|i| pos + i)
+            .unwrap_or(content.len());
+        let line = &content[line_start..line_end];
+        if quoted_fields(line).get(1).is_some_and(|v| v == "0") {
+            return None;
+        }
+        let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
+        let mut out = String::with_capacity(content.len());
+        out.push_str(&content[..line_start]);
+        out.push_str(&indent);
+        out.push('"');
+        out.push_str(KEY);
+        out.push_str("\"\t\t\"0\"");
+        out.push_str(&content[line_end..]);
+        return Some(out);
+    }
+
+    let (brace_line_start, child_indent) = find_steam_block_brace(content)?;
+    let insert_at = content[brace_line_start..]
+        .find('\n')
+        .map(|i| brace_line_start + i + 1)?;
+    let mut out = String::with_capacity(content.len() + 48);
+    out.push_str(&content[..insert_at]);
+    out.push_str(&child_indent);
+    out.push('"');
+    out.push_str(KEY);
+    out.push_str("\"\t\t\"0\"\n");
+    out.push_str(&content[insert_at..]);
+    Some(out)
+}
+
+/// Locates the `{` that opens `Valve` -> `Steam`, returning where that line starts
+/// and the indentation its children should use.
+fn find_steam_block_brace(content: &str) -> Option<(usize, String)> {
+    let mut offset = 0usize;
+    let mut in_valve = false;
+    let mut depth = 0i32;
+    let mut awaiting_brace_for: Option<String> = None;
+
+    for line in content.split_inclusive('\n') {
+        let trimmed = line.trim();
+        let fields = quoted_fields(line);
+
+        if let Some(indent) = awaiting_brace_for.take() {
+            if trimmed == "{" {
+                return Some((offset, format!("{indent}\t")));
+            }
+        }
+
+        if fields.len() == 1 && fields[0].eq_ignore_ascii_case("Valve") {
+            in_valve = true;
+            depth = 0;
+        } else if in_valve {
+            depth += trimmed.matches('{').count() as i32;
+            depth -= trimmed.matches('}').count() as i32;
+            if depth < 0 {
+                in_valve = false;
+            } else if fields.len() == 1 && fields[0].eq_ignore_ascii_case("Steam") {
+                awaiting_brace_for =
+                    Some(line.chars().take_while(|c| c.is_whitespace()).collect());
+            }
+        }
+        offset += line.len();
+    }
+    None
 }
 
 fn config_contains_steamid(content: &str, steamid: &str) -> bool {
@@ -406,6 +498,91 @@ fn write_local_vdf(username: &str, token: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Every `"<crc>" "<hex blob>"` pair inside `local.vdf`'s ConnectCache block.
+///
+/// These are the tokens for accounts already signed in on this PC, which is what
+/// makes importing them possible with no login codes at all. The crc key is
+/// `crc32(account_name)` — see [`compute_crc32`] — so the caller resolves names
+/// from `loginusers.vdf` and matches by hash.
+pub(crate) fn read_connect_cache(content: &str) -> Vec<(String, String)> {
+    let mut entries = Vec::new();
+    let mut in_connect_cache = false;
+    let mut brace_depth = 0;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed == "\"ConnectCache\"" {
+            in_connect_cache = true;
+            brace_depth = 0;
+            continue;
+        }
+        if !in_connect_cache {
+            continue;
+        }
+        if trimmed.starts_with('{') {
+            brace_depth += 1;
+            continue;
+        }
+        if trimmed.starts_with('}') {
+            brace_depth -= 1;
+            if brace_depth <= 0 {
+                break;
+            }
+            continue;
+        }
+        let fields = quoted_fields(trimmed);
+        if fields.len() >= 2 && !fields[0].is_empty() && !fields[1].is_empty() {
+            entries.push((fields[0].clone(), fields[1].clone()));
+        }
+    }
+
+    entries
+}
+
+#[cfg(test)]
+mod connect_cache_tests {
+    use super::*;
+
+    const LOCAL_VDF: &str = "\"MachineUserConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"Valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"ConnectCache\"\n\t\t\t\t{\n\t\t\t\t\t\"c0ffee1\"\t\t\"deadbeef\"\n\t\t\t\t\t\"ba5eba111\"\t\t\"cafe00\"\n\t\t\t\t}\n\t\t\t\t\"Rate\"\t\t\"200\"\n\t\t\t}\n\t\t}\n\t}\n}\n";
+
+    #[test]
+    fn reads_every_cache_entry() {
+        let entries = read_connect_cache(LOCAL_VDF);
+        assert_eq!(
+            entries,
+            vec![
+                ("c0ffee1".to_string(), "deadbeef".to_string()),
+                ("ba5eba111".to_string(), "cafe00".to_string()),
+            ]
+        );
+    }
+
+    /// The block closes before `"Rate"`, so keys after it must not leak in.
+    #[test]
+    fn stops_at_the_end_of_the_block() {
+        assert!(!read_connect_cache(LOCAL_VDF)
+            .iter()
+            .any(|(k, _)| k == "Rate"));
+    }
+
+    #[test]
+    fn missing_block_yields_nothing() {
+        assert!(read_connect_cache("\"MachineUserConfigStore\"\n{\n}\n").is_empty());
+        assert!(read_connect_cache("").is_empty());
+    }
+
+    /// A round trip through the writer proves the reader agrees with the format we
+    /// actually produce, not just with a fixture.
+    #[test]
+    fn reads_back_what_the_writer_wrote() {
+        let written = create_new_local_vdf("abc1", "0011ff");
+        assert_eq!(
+            read_connect_cache(&written),
+            vec![("abc1".to_string(), "0011ff".to_string())]
+        );
+    }
+}
+
 fn inject_connect_cache(content: &str, crc: &str, encrypted: &str) -> Result<String, String> {
     let mut output = String::new();
     let mut in_connect_cache = false;
@@ -485,7 +662,12 @@ pub(crate) fn apply_localconfig_settings(
         .unwrap_or_else(|_| minimal_localconfig_template(&steamid3, persona_state));
 
     content = patch_persona_prefs(&content, &steamid3, persona_state);
-    content = replace_vdf_key_line(&content, "SignIntoFriends", "1");
+    // Steam reads the desired state from `friends`, and the WebStorage blob above
+    // is what the friends UI shows. Writing only one of them gives an account that
+    // signs in Online but *displays* as Invisible, or the reverse. Scoped to the
+    // `friends` block so a same-named key elsewhere in the file is left alone.
+    content = set_nested_key(&content, &["friends"], "PersonaStateDesired", &persona_state.to_string());
+    content = set_nested_key(&content, &["friends"], "SignIntoFriends", "1");
 
     if settings.mute_notifications_on_login {
         content = patch_friends_notifications(&content);
@@ -594,6 +776,57 @@ fn current_timestamp() -> String {
         .unwrap()
         .as_secs()
         .to_string()
+}
+
+#[cfg(test)]
+mod user_chooser_tests {
+    use super::*;
+
+    const CONFIG: &str = "\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"Valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"Accounts\"\n\t\t\t\t{\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n";
+
+    #[test]
+    fn inserts_the_key_when_absent() {
+        let out = with_user_chooser_off(CONFIG).expect("should patch");
+        assert!(out.contains("\"AlwaysShowUserChooser\"\t\t\"0\""));
+        // Inserted inside the Steam block, above Accounts.
+        let key = out.find("AlwaysShowUserChooser").unwrap();
+        let accounts = out.find("Accounts").unwrap();
+        assert!(key < accounts);
+        // Nothing else was disturbed.
+        assert!(out.contains("\"InstallConfigStore\""));
+    }
+
+    #[test]
+    fn flips_an_existing_one() {
+        let on = CONFIG.replace(
+            "\t\t\t\t\"Accounts\"",
+            "\t\t\t\t\"AlwaysShowUserChooser\"\t\t\"1\"\n\t\t\t\t\"Accounts\"",
+        );
+        let out = with_user_chooser_off(&on).expect("should patch");
+        assert!(out.contains("\"AlwaysShowUserChooser\"\t\t\"0\""));
+        assert!(!out.contains("\"AlwaysShowUserChooser\"\t\t\"1\""));
+    }
+
+    #[test]
+    fn already_off_is_left_alone() {
+        let off = CONFIG.replace(
+            "\t\t\t\t\"Accounts\"",
+            "\t\t\t\t\"AlwaysShowUserChooser\"\t\t\"0\"\n\t\t\t\t\"Accounts\"",
+        );
+        assert!(with_user_chooser_off(&off).is_none());
+    }
+
+    #[test]
+    fn unrecognisable_config_is_not_mangled() {
+        assert!(with_user_chooser_off("garbage\n{\n}\n").is_none());
+    }
+
+    #[test]
+    fn preserves_crlf_elsewhere() {
+        let crlf = CONFIG.replace('\n', "\r\n");
+        let out = with_user_chooser_off(&crlf).expect("should patch");
+        assert!(out.contains("\"InstallConfigStore\"\r\n"));
+    }
 }
 
 #[cfg(test)]

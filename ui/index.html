@@ -3,150 +3,304 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark light" />
-    <title>archievable</title>
+    <meta name="color-scheme" content="dark" />
+    <title>nfa.pub tool</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div class="app">
+      <div class="backdrop" aria-hidden="true"><div class="capsules" id="capsules"></div></div>
+
       <div class="titlebar" data-tauri-drag-region>
-        <div class="titlebar-brand" data-tauri-drag-region>
-          <span class="tb-mark" aria-hidden="true">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="4" width="18" height="4" rx="1" />
-              <path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" />
-              <path d="M10 12h4" />
-            </svg>
-          </span>
-          <span class="tb-title">archievable</span>
-        </div>
-        <div class="titlebar-controls">
+        <button class="back-btn hidden" id="backBtn" title="Back" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+        </button>
+        <div class="tb-controls">
           <button class="tb-btn" id="winMin" title="Minimize" aria-label="Minimize">
-            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="1" y="4.6" width="8" height="0.9" fill="currentColor" /></svg>
+            <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true"><rect x="1" y="5" width="9" height="1" fill="currentColor" /></svg>
           </button>
           <button class="tb-btn" id="winMax" title="Maximize" aria-label="Maximize">
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="0.9" aria-hidden="true"><rect x="1.4" y="1.4" width="7.2" height="7.2" rx="1.2" /></svg>
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true"><rect x="1.5" y="1.5" width="8" height="8" /></svg>
           </button>
           <button class="tb-btn tb-close" id="winClose" title="Close" aria-label="Close">
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linecap="round" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6" /></svg>
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true"><path d="M2.5 2.5l8 8M10.5 2.5l-8 8" /></svg>
           </button>
         </div>
       </div>
 
-      <header class="topbar">
-        <span class="title">Accounts<span id="accountCount" class="title-count"></span></span>
-        <div class="topbar-actions">
-          <button id="refreshBtn" class="btn">Refresh</button>
-          <button id="importBtn" class="btn btn-accent">Import</button>
-        </div>
-      </header>
+      <main class="stage">
+        <!-- ---------- Account picker ---------- -->
+        <section class="view" id="pickerView">
+          <div class="cached-users">
+            <h2 class="whos-playing" id="pickerHeadline">Who&#39;s playing?</h2>
+            <div class="filterbar hidden" id="filterBar">
+              <input
+                type="text"
+                class="search-input"
+                id="searchInput"
+                placeholder="Search accounts"
+                spellcheck="false"
+                autocomplete="off"
+                aria-label="Search accounts"
+              />
+              <div class="swatches" id="colorFilter"></div>
+            </div>
+            <div class="user-list" id="tiles" role="list"></div>
+            <div class="empty-note hidden" id="emptyNote">No accounts match.</div>
+            <div class="selbar hidden" id="selBar">
+              <span class="sel-count" id="selCount"></span>
+              <div class="swatches" id="selColor"></div>
+              <button class="chip" id="selCopy" type="button">Copy codes</button>
+              <button class="chip" id="selExport" type="button">Save .txt</button>
+              <button class="chip" id="selRemove" type="button">Remove</button>
+              <button class="chip" id="selClear" type="button">Clear</button>
+            </div>
+          </div>
+        </section>
 
-      <main class="list-wrap">
-        <div id="accountList" class="list"></div>
-        <div id="emptyState" class="empty hidden">
-          <span class="empty-icon">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="4" width="18" height="4" rx="1" />
-              <path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" />
-              <path d="M10 12h4" />
-            </svg>
-          </span>
-          <div class="empty-title">No accounts yet</div>
-          <div class="empty-sub">Import a login code to get started.</div>
-          <button id="emptyImportBtn" class="btn btn-accent">Import accounts</button>
-        </div>
+        <!-- ---------- Account detail ---------- -->
+        <section class="view hidden" id="accountView">
+          <div class="account-detail">
+            <div class="account-head">
+              <span class="account-avatar" id="accountAvatar"></span>
+              <div class="account-names">
+                <div class="account-persona" id="accountPersona"></div>
+                <div class="account-login" id="accountLogin"></div>
+              </div>
+            </div>
+            <dl class="account-facts" id="accountFacts"></dl>
+            <div class="chip-row">
+              <span class="chip-label">Cooldown</span>
+              <div class="chips" id="cooldownChips"></div>
+            </div>
+            <div class="chip-row">
+              <span class="chip-label">Tag</span>
+              <div class="swatches" id="colorPick"></div>
+            </div>
+            <div class="cta-row">
+              <button id="accountSignIn" class="lbtn lbtn-primary" type="button">Sign in</button>
+              <button id="accountRemove" class="lbtn lbtn-quiet" type="button">Remove</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ---------- Signing in ---------- -->
+        <section class="view hidden" id="signingView">
+          <div class="loader"><span class="loader-ring" aria-hidden="true"></span></div>
+          <div class="loader-text" id="signingText">Signing in</div>
+          <div class="loader-who">
+            <span class="loader-avatar" id="signingAvatar"></span>
+            <span class="loader-name" id="signingName"></span>
+          </div>
+        </section>
+
+        <!-- ---------- Add account ---------- -->
+        <section class="view hidden" id="addView">
+          <div class="add-form">
+            <h2 class="whos-playing">Add an account</h2>
+            <div class="field">
+              <div class="field-head">
+                <span class="field-label">Login codes</span>
+                <button class="flink" id="pasteBtn" type="button">Paste</button>
+              </div>
+              <textarea id="importInput" spellcheck="false" rows="1"></textarea>
+            </div>
+            <div class="cta-row">
+              <button id="doImportBtn" class="lbtn lbtn-primary" type="button" disabled>Import</button>
+            </div>
+            <div class="chip-row chip-row-center">
+              <button class="chip" id="importFileBtn" type="button">From a .txt file</button>
+              <button class="chip" id="importSteamBtn" type="button" title="Reads accounts already signed in on this PC from Steam's own login cache">
+                From Steam on this PC
+              </button>
+            </div>
+            <div id="importStatus" class="form-msg"></div>
+          </div>
+        </section>
+
+        <!-- ---------- Settings ---------- -->
+        <section class="view hidden" id="settingsView">
+          <div class="panel panel-single">
+            <div class="pane-title">Settings</div>
+            <div class="field key-row">
+              <div class="field-head">
+                <span class="field-label">Steam Web API key</span>
+                <span class="key-state" id="apiKeyState"></span>
+              </div>
+              <input
+                type="password"
+                class="text-input"
+                id="apiKeyInput"
+                spellcheck="false"
+                autocomplete="off"
+                autocapitalize="off"
+              />
+              <span class="check-desc">
+                Unlocks level and ban badges on the account tiles. Get one free at
+                steamcommunity.com/dev/apikey. Without a key only online status is shown.
+              </span>
+            </div>
+            <label class="check-row">
+              <input type="checkbox" class="check" data-setting="always_invisible" />
+              <span class="check-text">
+                <span class="check-label">Always start Invisible</span>
+                <span class="check-desc">Log in as Invisible, not Online or Idle.</span>
+              </span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" class="check" data-setting="cancel_downloads_on_login" />
+              <span class="check-text">
+                <span class="check-label">Pause game updates on login</span>
+                <span class="check-desc">Sets installed games to update only when launched, so signing in won&#39;t start background downloads. New installs and Workshop still download.</span>
+              </span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" class="check" data-setting="hide_from_capture" />
+              <span class="check-text">
+                <span class="check-label">Hide from screen capture</span>
+                <span class="check-desc">This window won&#39;t appear in OBS, Discord screen share, or screenshots. It stays visible on your own monitor.</span>
+              </span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" class="check" data-setting="streamer_mode" />
+              <span class="check-text">
+                <span class="check-label">Streamer mode</span>
+                <span class="check-desc">Hide usernames and Steam IDs in this app and tray. Avatars stay visible.</span>
+              </span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" class="check" data-setting="launch_steam_minimized" />
+              <span class="check-text">
+                <span class="check-label">Launch Steam minimized</span>
+                <span class="check-desc">Start Steam in the background after sign-in.</span>
+              </span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" class="check" data-setting="fetch_missing_avatars" />
+              <span class="check-text">
+                <span class="check-label">Load missing avatars from Steam</span>
+                <span class="check-desc">For accounts Steam hasn&#39;t cached a picture for, fetch it from Steam&#39;s avatar CDN. This is the only request nfa.pub tool makes over the internet — turn it off to stay fully offline.</span>
+              </span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" class="check" data-setting="mute_notifications_on_login" />
+              <span class="check-text">
+                <span class="check-label">Mute notifications on login</span>
+                <span class="check-desc">Disable friend online/message notifications in Steam.</span>
+              </span>
+            </label>
+
+            <div class="pane-title pane-title-sub">Counter-Strike 2</div>
+            <div class="field key-row">
+              <div class="field-head">
+                <span class="field-label">Launch options</span>
+              </div>
+              <input
+                type="text"
+                class="text-input"
+                id="cs2LaunchInput"
+                spellcheck="false"
+                autocomplete="off"
+                autocapitalize="off"
+                placeholder="-novid -high"
+              />
+              <span class="check-desc">
+                Written to every account you sign in to. Leave empty to keep whatever each
+                account already has.
+              </span>
+            </div>
+            <div class="field key-row">
+              <div class="field-head">
+                <span class="field-label">Copy CS2 settings from</span>
+              </div>
+              <select class="text-input" id="cs2SourceSelect"></select>
+              <span class="check-desc">
+                Copies that account&#39;s video settings, crosshairs and cfg files onto whichever
+                account you sign in to. Existing files are overwritten.
+              </span>
+            </div>
+            <label class="check-row">
+              <input type="checkbox" class="check" data-setting="launch_cs2_on_login" />
+              <span class="check-text">
+                <span class="check-label">Launch CS2 after signing in</span>
+                <span class="check-desc">Starts Steam with <code>-applaunch 730</code>.</span>
+              </span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" class="check" data-setting="suppress_workshop_downloads" />
+              <span class="check-text">
+                <span class="check-label">Don&#39;t re-download Workshop maps</span>
+                <span class="check-desc">Marks subscribed Workshop items as disabled locally, so switching accounts doesn&#39;t pull them all down again.</span>
+              </span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" class="check" data-setting="disable_remote_play" />
+              <span class="check-text">
+                <span class="check-label">Turn off Remote Play</span>
+                <span class="check-desc">Disables Steam Remote Play for each account you sign in to.</span>
+              </span>
+            </label>
+
+            <div class="pane-title pane-title-sub">About</div>
+            <div class="chip-row">
+              <span class="chip-label">Version</span>
+              <div class="chips">
+                <span class="version-text" id="versionText">—</span>
+                <button class="chip" id="updateBtn" type="button">Check for updates</button>
+              </div>
+            </div>
+            <div class="chip-row">
+              <span class="chip-label">Maintenance</span>
+              <div class="chips">
+                <button class="chip" id="pruneBtn" type="button">Remove expired login codes</button>
+              </div>
+            </div>
+            <div class="chip-row">
+              <span class="chip-label">Diagnostics</span>
+              <div class="chips">
+                <button class="chip" id="logBtn" type="button">Show recent problems</button>
+              </div>
+            </div>
+            <pre class="logbox hidden" id="logBox"></pre>
+          </div>
+        </section>
       </main>
 
-      <footer class="footbar">
-        <button id="settingsBtn" class="foot-btn" title="Settings" aria-label="Settings">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
-            <circle cx="12" cy="12" r="3"/>
-          </svg>
-          <span>Settings</span>
-        </button>
-        <button id="dangerBtn" class="foot-btn foot-danger">Reset cache</button>
+      <footer class="footlinks" id="footlinks">
+        <div class="footlinks-left">
+          <button class="ficon" id="searchBtn" type="button" data-tip="Search and filter" aria-label="Search and filter">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="M15.5 15.5L21 21" /></svg>
+          </button>
+          <button class="ficon" id="refreshBtn" type="button" data-tip="Refresh accounts" aria-label="Refresh accounts">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 5v6h-6" /></svg>
+          </button>
+          <button class="ficon hidden" id="moreBtn" type="button" data-tip="" aria-label="">
+            <svg class="ic-grid" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>
+            <svg class="ic-row" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="2" y="8.5" width="7" height="7" rx="1" /><rect x="11" y="8.5" width="7" height="7" rx="1" /><rect x="20" y="8.5" width="2" height="7" rx="1" opacity=".45" /></svg>
+          </button>
+        </div>
+        <div class="footlinks-right">
+          <button class="ficon" id="settingsBtn" type="button" data-tip="Settings" aria-label="Settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1" /><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a1.9 1.9 0 1 1-2.7 2.7l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-1 1.47V21a1.9 1.9 0 1 1-3.8 0v-.1a1.6 1.6 0 0 0-1.05-1.47 1.6 1.6 0 0 0-1.77.32l-.06.06a1.9 1.9 0 1 1-2.7-2.7l.06-.06a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.47-1H3a1.9 1.9 0 1 1 0-3.8h.1a1.6 1.6 0 0 0 1.47-1.05 1.6 1.6 0 0 0-.32-1.77l-.06-.06a1.9 1.9 0 1 1 2.7-2.7l.06.06a1.6 1.6 0 0 0 1.77.32H9a1.6 1.6 0 0 0 1-1.47V3a1.9 1.9 0 1 1 3.8 0v.1a1.6 1.6 0 0 0 1 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a1.9 1.9 0 1 1 2.7 2.7l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47 1H21a1.9 1.9 0 1 1 0 3.8h-.1a1.6 1.6 0 0 0-1.47 1z" /></svg>
+          </button>
+          <button class="ficon ficon-danger" id="dangerBtn" type="button" data-tip="Sign Steam out on this PC" aria-label="Sign Steam out on this PC">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 20H5.5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4" /><path d="M16 16.5l4.5-4.5L16 7.5" /><path d="M20.5 12H9.5" /></svg>
+          </button>
+        </div>
       </footer>
     </div>
 
     <div id="toastWrap" class="toast-wrap"></div>
 
-    <div id="importModal" class="overlay hidden">
-      <div class="dialog">
-        <div class="dialog-head">
-          <span>Import accounts</span>
-          <button class="btn-icon" data-action="close-import" title="Close" aria-label="Close">&times;</button>
-        </div>
-        <p class="dialog-text">Paste one login code per line.</p>
-        <textarea
-          id="importInput"
-          spellcheck="false"
-          placeholder="One code per line"
-        ></textarea>
-        <div class="dialog-foot">
-          <button id="pasteBtn" class="btn">Paste</button>
-          <button id="doImportBtn" class="btn btn-accent">Import</button>
-        </div>
-        <div id="importStatus" class="dialog-msg"></div>
-      </div>
-    </div>
+    <div id="colorMenu" class="ctxmenu hidden" role="menu" aria-label="Tag colour"></div>
 
     <div id="confirmModal" class="overlay hidden">
-      <div class="dialog dialog-sm">
-        <div class="dialog-head">
-          <span id="confirmTitle">Confirm</span>
-          <button class="btn-icon" data-action="close-confirm" title="Close" aria-label="Close">&times;</button>
-        </div>
-        <p id="confirmText" class="dialog-text"></p>
-        <div class="dialog-foot">
-          <button class="btn" data-action="close-confirm">Cancel</button>
-          <button id="confirmYes" class="btn btn-danger">Confirm</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="settingsModal" class="overlay hidden">
-      <div class="dialog dialog-settings">
-        <div class="dialog-head">
-          <span>Settings</span>
-          <button class="btn-icon" data-action="close-settings" title="Close" aria-label="Close">&times;</button>
-        </div>
-        <div class="settings-list">
-          <label class="setting-row">
-            <span class="setting-info">
-              <span class="setting-label">Always start Invisible</span>
-              <span class="setting-desc">Log in as Invisible, not Online or Idle.</span>
-            </span>
-            <input type="checkbox" class="toggle" data-setting="always_invisible" />
-          </label>
-          <label class="setting-row">
-            <span class="setting-info">
-              <span class="setting-label">Pause game updates on login</span>
-              <span class="setting-desc">Sets installed games to update only when launched, so signing in won't start background downloads. New installs and Workshop still download.</span>
-            </span>
-            <input type="checkbox" class="toggle" data-setting="cancel_downloads_on_login" />
-          </label>
-          <label class="setting-row">
-            <span class="setting-info">
-              <span class="setting-label">Streamer mode</span>
-              <span class="setting-desc">Hide usernames and Steam IDs in this app and tray. Avatars stay visible.</span>
-            </span>
-            <input type="checkbox" class="toggle" data-setting="streamer_mode" />
-          </label>
-          <label class="setting-row">
-            <span class="setting-info">
-              <span class="setting-label">Launch Steam minimized</span>
-              <span class="setting-desc">Start Steam in the background after sign-in.</span>
-            </span>
-            <input type="checkbox" class="toggle" data-setting="launch_steam_minimized" />
-          </label>
-          <label class="setting-row">
-            <span class="setting-info">
-              <span class="setting-label">Mute notifications on login</span>
-              <span class="setting-desc">Disable friend online/message notifications in Steam.</span>
-            </span>
-            <input type="checkbox" class="toggle" data-setting="mute_notifications_on_login" />
-          </label>
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+        <div class="dialog-title" id="confirmTitle">Confirm</div>
+        <p class="dialog-text" id="confirmText"></p>
+        <div class="btn-row">
+          <button class="lbtn lbtn-secondary" data-action="close-confirm" type="button">Cancel</button>
+          <button class="lbtn lbtn-danger" id="confirmYes" type="button">Confirm</button>
         </div>
       </div>
     </div>

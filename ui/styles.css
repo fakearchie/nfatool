@@ -1,172 +1,70 @@
-/* archievable — clean, monochrome, Codex-calm.
-   Single-column list, borderless rows, theme-aware (light default, dark overrides). */
+/* archievable — Steam login-window ("loader") skin.
+   Colours, gradients, radii and control specs are taken verbatim from Valve's own
+   login-dialog stylesheet (store/34004.css) and the shipped client CSS
+   (steamui/css/chunk~2dcc5aaf7.css). Nothing here is a guessed approximation. */
 
 :root {
-  color-scheme: light;
-
-  --bg: #ffffff;
-  --surface: #ffffff;
-  --surface-2: #f7f7f8;
-  --surface-3: #ececec;
-  --row-hover: rgba(0, 0, 0, 0.04);
-  --control-hover: rgba(0, 0, 0, 0.06);
-  --control-active: rgba(0, 0, 0, 0.09);
-
-  --border: rgba(0, 0, 0, 0.09);
-  --border-strong: rgba(0, 0, 0, 0.16);
-
-  --text: #0d0d0d;
-  --text-secondary: #5d5d5d;
-  --text-muted: #6e6e6e;
-  --text-faint: #9a9a9a;
-
-  --violet: #7c5cff;
-
-  --primary: #0d0d0d;
-  --primary-hover: #262626;
-  --primary-active: #000000;
-  --primary-text: #ffffff;
-
-  --danger: #d1342f;
-  --danger-solid: #dc2626;
-  --danger-solid-hover: #c21f1c;
-  --danger-solid-text: #ffffff;
-  --danger-hover-bg: rgba(209, 52, 47, 0.08);
-
-  --focus-ring: 0 0 0 3px rgba(0, 0, 0, 0.14);
-
-  --input-bg: #f7f7f8;
-
-  --toggle-off: #d9d9d9;
-  --toggle-on: #0d0d0d;
-  --toggle-knob: #ffffff;
-  --toggle-knob-on: #ffffff;
-  --toggle-knob-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-
-  --toast-bg: #1f1f1f;
-  --toast-text: #f3f3f3;
-  --toast-text-err: #ff8a8a;
-  --toast-border: rgba(255, 255, 255, 0.08);
-
-  --badge-text: #5d5d5d;
-  --ok: #1a7f37;
-  --ok-bg: rgba(26, 127, 55, 0.1);
-
-  --scrim: rgba(0, 0, 0, 0.4);
-  --scroll-thumb: rgba(0, 0, 0, 0.18);
-  --scroll-thumb-hover: rgba(0, 0, 0, 0.3);
-
-  --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.08);
-  --shadow-toast: 0 6px 24px rgba(0, 0, 0, 0.2);
-
-  --font-sans: "OpenAI Sans", "Söhne", ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI Variable", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: "OpenAI Sans Mono", ui-monospace, "Cascadia Code", "SF Mono",
-    Consolas, "Liberation Mono", Menlo, monospace;
-
-  --radius-sm: 8px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-pill: 999px;
-
-  --ease-out: cubic-bezier(0.2, 0, 0, 1);
-  --ease-emphasis: cubic-bezier(0.16, 1, 0.3, 1);
-  --t-hover: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
-  --t-control: background-color 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #0f0f0f;
-    --surface: #181818;
-    --surface-2: #232323;
-    --surface-3: #2e2e2e;
-    --row-hover: rgba(255, 255, 255, 0.055);
-    --control-hover: rgba(255, 255, 255, 0.08);
-    --control-active: rgba(255, 255, 255, 0.12);
-    --border: rgba(255, 255, 255, 0.09);
-    --border-strong: rgba(255, 255, 255, 0.17);
-    --text: #f2f2f2;
-    --text-secondary: #b4b4b4;
-    --text-muted: #8e8e8e;
-    --text-faint: #6a6a6a;
-    --violet: #a78bfa;
-    --primary: #ffffff;
-    --primary-hover: #e6e6e6;
-    --primary-active: #d9d9d9;
-    --primary-text: #0d0d0d;
-    --danger: #ff6b6b;
-    --danger-solid: #e5484d;
-    --danger-solid-hover: #f0575c;
-    --danger-solid-text: #ffffff;
-    --danger-hover-bg: rgba(255, 107, 107, 0.12);
-    --focus-ring: 0 0 0 3px rgba(255, 255, 255, 0.2);
-    --input-bg: #121212;
-    --toggle-off: rgba(255, 255, 255, 0.22);
-    --toggle-on: #ffffff;
-    --toggle-knob: #ececec;
-    --toggle-knob-on: #1a1a1a;
-    --toggle-knob-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-    --toast-bg: #2f2f2f;
-    --toast-text: #ececec;
-    --toast-text-err: #ff8a8a;
-    --toast-border: rgba(255, 255, 255, 0.1);
-    --badge-text: #b4b4b4;
-    --ok: #3fb950;
-    --ok-bg: rgba(63, 185, 80, 0.14);
-    --scrim: rgba(0, 0, 0, 0.6);
-    --scroll-thumb: rgba(255, 255, 255, 0.16);
-    --scroll-thumb-hover: rgba(255, 255, 255, 0.28);
-    --shadow-modal: 0 16px 48px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
-    --shadow-toast: 0 6px 24px rgba(0, 0, 0, 0.45);
-  }
-}
-
-:root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0f0f0f;
-  --surface: #181818;
-  --surface-2: #232323;
-  --surface-3: #2e2e2e;
-  --row-hover: rgba(255, 255, 255, 0.055);
-  --control-hover: rgba(255, 255, 255, 0.08);
-  --control-active: rgba(255, 255, 255, 0.12);
-  --border: rgba(255, 255, 255, 0.09);
-  --border-strong: rgba(255, 255, 255, 0.17);
-  --text: #f2f2f2;
-  --text-secondary: #b4b4b4;
-  --text-muted: #8e8e8e;
-  --text-faint: #6a6a6a;
-  --violet: #a78bfa;
-  --primary: #ffffff;
-  --primary-hover: #e6e6e6;
-  --primary-active: #d9d9d9;
-  --primary-text: #0d0d0d;
-  --danger: #ff6b6b;
-  --danger-solid: #e5484d;
-  --danger-solid-hover: #f0575c;
-  --danger-solid-text: #ffffff;
-  --danger-hover-bg: rgba(255, 107, 107, 0.12);
-  --focus-ring: 0 0 0 3px rgba(255, 255, 255, 0.2);
-  --input-bg: #121212;
-  --toggle-off: rgba(255, 255, 255, 0.22);
-  --toggle-on: #ffffff;
-  --toggle-knob: #ececec;
-  --toggle-knob-on: #1a1a1a;
-  --toggle-knob-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --toast-bg: #2f2f2f;
-  --toast-text: #ececec;
-  --toast-text-err: #ff8a8a;
-  --toast-border: rgba(255, 255, 255, 0.1);
-  --badge-text: #b4b4b4;
-  --ok: #3fb950;
-  --ok-bg: rgba(63, 185, 80, 0.14);
-  --scrim: rgba(0, 0, 0, 0.6);
-  --scroll-thumb: rgba(255, 255, 255, 0.16);
-  --scroll-thumb-hover: rgba(255, 255, 255, 0.28);
-  --shadow-modal: 0 16px 48px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-toast: 0 6px 24px rgba(0, 0, 0, 0.45);
+
+  /* Login-window surfaces (this family is warmer than the main client's) */
+  --window: linear-gradient(0deg, #191a1e, #191a1e 58%, #212328 84%);
+  --panel-grad: linear-gradient(321.58deg, #212629 47.91%, #333841 91.08%);
+  --card: #32353c;
+  --card-hover: hsl(222, 9.09%, 24.57%);
+  --inner: #181a21;
+
+  /* Text */
+  --text: #ffffff;
+  --body: #dfe3e6;
+  --muted: #afafaf;
+  --muted-2: #8b929a;
+  --dim: #67707b;
+
+  /* Accents */
+  --blue: #1999ff;
+  --focus: #06bfff;
+  --blue-grad: linear-gradient(90deg, #06bfff 0%, #2d73ff 100%);
+  --blue-grad-hover: linear-gradient(90deg, #06bfff 30%, #2d73ff 100%);
+  --blue-grad-active: linear-gradient(90deg, #06bfff 50%, #2d73ff 100%);
+  --err: #c15755;
+  --err-strong: #e5484d;
+  --err-text: #ffd1d9;
+
+  /* Controls */
+  --btn: #3d4450;
+  --btn-hover: #525b6a;
+  --btn-active: #2f343e;
+
+  --divider: rgba(67, 73, 83, 0.3);
+  --popup-shadow: 0 10px 32px 0 rgba(0, 0, 0, 0.671);
+
+  --font: "Motiva Sans", Arial, Helvetica, sans-serif;
+
+  /* Tag palette. One definition drives both the swatch fill and the tile border,
+     so a tile can never disagree with the dot that set it. */
+  --tag-red: #c15755;
+  --tag-amber: #d9a441;
+  --tag-green: #59bf40;
+  --tag-blue: #1999ff;
+  --tag-purple: #a86fe0;
+  --tag-gray: #8b929a;
+  --font-mono: Consolas, "Cascadia Mono", "Courier New", monospace;
+
+  --radius: 2px;
+
+  /* Tile geometry. The rule that matters: size must NOT depend on how many tiles
+     are on screen — that was the bug where filtering to one made it leap to 1.85x.
+     It may depend on the WINDOW, and it should, so a wide window gets big tiles.
+
+     `--tile` below is a fallback; the real width is computed in `.user` from the
+     row's own width against the 8-tile cap, so it fills the row smoothly at any
+     size instead of stepping down in coarse jumps. */
+  --tile: 72px;
+  --tile-gap: 12px;
+  /* Steam's 8-account cap (ROW_CAP in main.js) plus the add tile. All nine are
+     the same width — a narrower add tile read as a foreign object wedged on the
+     end rather than the last item in the row. */
+  --tile-slots: 9;
 }
 
 * {
@@ -180,739 +78,1590 @@ body {
   height: 100%;
 }
 
+/* Valve's type sizes assume a ~1000px login window; ours is 660x360, so every
+   size below is that scale taken down proportionally. Kept in one place because
+   the failure mode is a headline sized for a window twice this tall. */
 body {
-  font-family: var(--font-sans);
-  font-size: 13px;
+  font-family: var(--font);
+  font-size: 12px;
   line-height: 1.4;
-  color: var(--text);
-  background: var(--bg);
+  color: var(--body);
+  background: #191a1e;
   user-select: none;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
 }
 
 .app {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100vh;
+  background: var(--window);
+  overflow: hidden;
 }
 
-/* ---------- Custom titlebar (frameless window) ---------- */
+/* ---------- Blurred capsule-grid backdrop ----------
+   Steam masks a tilted grid of game capsules behind the login window. We build the
+   same thing out of CSS so no artwork ships with the app. Mask is Valve's own. */
+.backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.72;
+  -webkit-mask-image: radial-gradient(
+    75% 83% at 50% 18%,
+    #000 0%,
+    rgba(0, 0, 0, 0.6) 76%,
+    rgba(0, 0, 0, 0) 100%
+  );
+  mask-image: radial-gradient(
+    75% 83% at 50% 18%,
+    #000 0%,
+    rgba(0, 0, 0, 0.6) 76%,
+    rgba(0, 0, 0, 0) 100%
+  );
+}
+
+.capsules {
+  position: absolute;
+  top: -35%;
+  left: -35%;
+  width: 170%;
+  height: 170%;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  grid-auto-rows: 152px;
+  gap: 11px;
+  transform: rotate(-8deg);
+  filter: blur(13px) saturate(0.78);
+  animation: bg-drift 60s ease-in-out infinite alternate;
+}
+
+/* Steam slowly drifts its login backdrop; same idea, cheaper. */
+@keyframes bg-drift {
+  from {
+    transform: rotate(-8deg) translate3d(0, 0, 0);
+  }
+  to {
+    transform: rotate(-8deg) translate3d(-46px, -34px, 0);
+  }
+}
+
+.capsules i {
+  display: block;
+  border-radius: 3px;
+}
+
+/* ---------- Title bar ---------- */
 .titlebar {
+  position: relative;
+  flex-shrink: 0;
+  height: 34px;
+  z-index: 3;
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  height: 36px;
-  flex-shrink: 0;
-  padding-left: 10px;
-  background: var(--bg);
-  user-select: none;
-}
-
-.titlebar-brand {
-  display: flex;
   align-items: center;
-  gap: 8px;
-  height: 100%;
-  flex: 1;
-  min-width: 0;
+  padding-left: 4px;
 }
 
-.tb-mark {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-  border-radius: 5px;
-  background: var(--violet);
-  color: #fff;
+.tb-controls {
   display: flex;
+}
+
+.tb-btn {
+  width: 38px;
+  height: 34px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s ease-out, color 0.2s ease-out;
 }
 
-.tb-mark svg,
 .tb-btn svg {
   display: block;
 }
 
-.tb-title {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.titlebar-controls {
-  display: flex;
-  height: 100%;
-  flex-shrink: 0;
-}
-
-.tb-btn {
-  width: 44px;
-  height: 36px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease;
-}
-
 .tb-btn:hover {
-  background: var(--control-hover);
+  background: rgba(255, 255, 255, 0.08);
   color: var(--text);
-}
-
-.tb-btn:active {
-  background: var(--control-active);
 }
 
 .tb-close:hover {
-  background: #e81123;
-  color: #fff;
+  background: var(--err);
+  color: var(--text);
 }
 
-/* ---------- Chrome ---------- */
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  height: 56px;
-  padding: 0 20px;
-  flex-shrink: 0;
+.tb-btn:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: -1px;
 }
 
-.title {
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.title-count {
-  margin-left: 8px;
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--text-muted);
-}
-
-.topbar-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.footbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 48px;
-  padding: 0 14px 0 12px;
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.foot-btn {
+/* ---------- Back button (sits where Steam's back chevron does) ---------- */
+.back-btn {
+  width: 30px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding: 0 10px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
+  justify-content: center;
   cursor: pointer;
-  transition: var(--t-hover);
+  transition: background-color 0.2s ease-out, color 0.2s ease-out;
 }
 
-.foot-btn svg {
+.back-btn svg {
   display: block;
 }
 
-.foot-btn:hover {
-  background: var(--control-hover);
+.back-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
   color: var(--text);
 }
 
-.foot-btn:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+.back-btn:focus-visible {
+  outline: 1px solid var(--focus);
 }
 
-.foot-danger:hover {
-  background: var(--danger-hover-bg);
-  color: var(--danger);
-}
-
-/* ---------- Buttons ---------- */
-.btn {
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  height: 32px;
-  padding: 0 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: var(--t-hover);
-}
-
-.btn:hover {
-  background: var(--control-hover);
-  border-color: var(--border-strong);
-}
-
-.btn:active {
-  background: var(--control-active);
-}
-
-.btn:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.btn-accent {
-  background: var(--primary);
-  border-color: transparent;
-  color: var(--primary-text);
-}
-
-.btn-accent:hover {
-  background: var(--primary-hover);
-  border-color: transparent;
-}
-
-.btn-accent:active {
-  background: var(--primary-active);
-}
-
-.btn-danger {
-  background: var(--danger-solid);
-  border-color: transparent;
-  color: var(--danger-solid-text);
-}
-
-.btn-danger:hover {
-  background: var(--danger-solid-hover);
-  border-color: transparent;
-}
-
-/* Round icon buttons for the per-row account actions */
-.icon-btn {
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-secondary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: var(--t-hover);
-}
-
-.icon-btn svg {
-  width: 18px;
-  height: 18px;
-  display: block;
-}
-
-.icon-btn:hover {
-  background: var(--control-hover);
-  color: var(--text);
-}
-
-.icon-btn:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-/* Primary action (Sign in) — filled ink */
-.icon-btn.primary {
-  background: var(--primary);
-  color: var(--primary-text);
-}
-
-.icon-btn.primary:hover {
-  background: var(--primary-hover);
-  color: var(--primary-text);
-}
-
-.icon-btn.primary:active {
-  background: var(--primary-active);
-}
-
-/* Destructive action (Remove) — quiet until hover */
-.icon-btn.danger {
-  color: var(--text-muted);
-}
-
-.icon-btn.danger:hover {
-  background: var(--danger-hover-bg);
-  color: var(--danger);
-}
-
-.btn-icon {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
-  transition: var(--t-hover);
-}
-
-.btn-icon:hover {
-  color: var(--text);
-  background: var(--control-hover);
-}
-
-.btn-icon:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-/* ---------- Account list ---------- */
-.list-wrap {
+/* ---------- Stage ---------- */
+.stage {
+  position: relative;
+  z-index: 1;
   flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: 8px 20px;
   overflow-y: auto;
   overflow-x: hidden;
 }
 
-.list {
+/* `margin:auto` rather than `align-items:center` so tall content stays
+   scrollable instead of being clipped at the top. */
+.view {
+  margin: auto;
+  width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 4px 12px 12px;
+  align-items: center;
 }
 
-.row {
+/* ---------- Account picker ----------
+   Metrics below are Valve's own, read out of the client's user-chooser CSS module
+   (chunk~2dcc5aaf7.css, classes CachedUsers / UserList / User / Icon / Name). */
+.cached-users {
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 14px;
-  padding: 12px 12px;
-  border-radius: var(--radius-md);
-  transition: background-color 120ms ease;
-}
-
-.row:hover {
-  background: var(--row-hover);
-}
-
-.avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-md);
-  flex-shrink: 0;
-  background: var(--surface-3);
-  box-shadow: inset 0 0 0 1px var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-muted);
-  overflow: hidden;
-}
-
-.avatar img {
   width: 100%;
-  height: 100%;
+}
+
+.whos-playing {
+  color: #dcdedf;
+  text-align: center;
+  font-size: 22px;
+  font-weight: bold;
+  padding: 6px 0;
+}
+
+/* Tiles wrap rather than shrink.
+   With `flex: 0 1 <basis>` the tile size was a function of how many tiles were on
+   screen: nine of them squeezed to 54px, and filtering down to one let it snap
+   back to the full 100px — a 1.85x jump on a filter click. A fixed basis means a
+   tile is always the same size and a row that runs out of width wraps instead. */
+.user-list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: var(--tile-gap);
+  width: 100%;
+  padding-inline: 8px;
+  box-sizing: border-box;
+}
+
+/* Width is derived from the row against the 8-tile cap, NOT from how many tiles
+   are actually rendered — so one filtered tile is exactly as wide as eight. The
+   clamp keeps it usable on a narrow window (wrapping instead of turning into
+   specks) and stops it ballooning on a wide one. */
+.user {
+  display: flex;
+  flex: 0 0
+    clamp(
+      46px,
+      calc(
+        (100% - (var(--tile-slots) - 1) * var(--tile-gap)) / var(--tile-slots)
+      ),
+      104px
+    );
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  padding-top: 6px;
+  container-type: inline-size;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.user * {
+  transition-duration: 0.24s;
+  transition-property: none;
+  transition-timing-function: ease-in-out;
+}
+
+.icon {
+  display: flex;
+  overflow: hidden;
+  transition-property: border, box-shadow, transform;
+}
+
+.user.existing .icon {
+  position: relative;
+  aspect-ratio: 1;
+  width: 100%;
+  background-color: #1c1c21;
+  border: 2px solid #23262e;
+  box-shadow: 0 4px 12px 3px rgba(0, 0, 0, 0.5);
+}
+
+.user.existing .icon > * {
+  margin-block: auto;
+  width: 100%;
+}
+
+.icon img {
+  display: block;
+  aspect-ratio: 1;
   object-fit: cover;
 }
 
-.row-info {
-  flex: 1;
+.icon .default-avatar {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+}
+
+.name {
+  /* A little wider than the tile, the way Steam lets a name overhang. Only the
+     hovered tile reveals its names, so neighbours can't collide. */
+  max-width: calc(var(--tile) + 18px);
+  font-weight: 500;
+  color: var(--text);
+  opacity: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition-property: opacity;
+}
+
+.name.persona {
+  font-size: 14px;
+  font-size: clamp(10px, 15cqw, 14px);
+  margin-top: 4px;
+}
+
+.name.account {
+  color: #8b929a;
+  font-size: 11px;
+  font-size: clamp(9px, 12cqw, 11px);
+  font-weight: 400;
+}
+
+/* Valve's signature picker interaction: the tile lifts and takes a white
+   border, and both name lines fade in. */
+.user:hover .icon,
+.user:focus-within .icon,
+.user.highlight .icon {
+  border: 2px solid var(--text);
+  transform: translateY(-6px);
+}
+
+.user:hover .name,
+.user:focus-within .name,
+.user.highlight .name {
+  opacity: 1;
+}
+
+/* keep a hovered tile's revealed names above its neighbours */
+.user:hover,
+.user:focus-within {
+  position: relative;
+  z-index: 1;
+}
+
+/* Same width as an account tile — it inherits `.user`'s flex, so nothing here. */
+
+/* "Show all" only adds rows now — the tiles keep their size, because a tile that
+   resizes when the list length changes is the bug this whole block used to be. */
+.cached-users.expanded .whos-playing {
+  padding: 2px 0;
+}
+
+/* An outline, not a filled block: the add tile occupies the same square as an
+   avatar but must read as an empty slot rather than as another account. */
+.user.new .icon {
+  position: relative;
+  aspect-ratio: 1;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+  color: var(--muted);
+  transition-property: border-color, color, background-color, transform;
+}
+
+.user.new .icon svg {
+  width: 34%;
+  height: auto;
+}
+
+.user.new:hover .icon,
+.user.new:focus-within .icon {
+  border-color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  transform: translateY(-6px);
+}
+
+.user.new .name.account {
+  height: 1lh;
+}
+
+/* ---------- Tile state ----------
+   No badges on the tiles: a symbol nobody can decode is worse than nothing.
+   The facts live in the account panel, one click away. The only thing left here
+   is greying a banned account out, which reads as "unavailable" without a legend. */
+.user.is-banned .icon img,
+.user.is-banned .icon .default-avatar {
+  filter: grayscale(1) brightness(0.5);
+}
+
+/* Same "unavailable" reading as a ban, but lighter — a cooldown lifts by itself,
+   and the panel spells out when. */
+.user.is-cooldown .icon img,
+.user.is-cooldown .icon .default-avatar {
+  filter: grayscale(0.8) brightness(0.6);
+}
+
+/* Steam's own friends-list tints, on the name that already fades in on hover. */
+.user.is-online .name.persona {
+  color: #6dcff6;
+}
+
+.user.is-ingame .name.persona {
+  color: #8cd61d;
+}
+
+.user.is-away .name.persona {
+  color: #4c91ac;
+}
+
+[data-color="red"] {
+  --tag: var(--tag-red);
+}
+[data-color="amber"] {
+  --tag: var(--tag-amber);
+}
+[data-color="green"] {
+  --tag: var(--tag-green);
+}
+[data-color="blue"] {
+  --tag: var(--tag-blue);
+}
+[data-color="purple"] {
+  --tag: var(--tag-purple);
+}
+[data-color="gray"] {
+  --tag: var(--tag-gray);
+}
+
+/* ---------- Colour tags ----------
+   The tag replaces the tile's border colour rather than adding a badge. A colour
+   the user chose themselves needs no legend, which is what sank the status dots. */
+.swatch {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  background: var(--tag, transparent);
+  cursor: pointer;
+  transition: transform 0.12s ease-out, border-color 0.12s ease-out;
+}
+
+.swatch:hover {
+  transform: scale(1.18);
+  border-color: rgba(255, 255, 255, 0.55);
+}
+
+.swatch.is-on {
+  border-color: var(--text);
+  border-width: 2px;
+}
+
+.swatch:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* "No tag" reads as an empty slot, so draw it as one. */
+.swatch[data-color=""] {
+  background: transparent;
+  position: relative;
+}
+
+.swatch[data-color=""]::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-left: 1px solid var(--muted);
+  transform: rotate(45deg);
+}
+
+.swatches {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.user[data-color] .icon {
+  border-color: var(--tag);
+}
+
+.user[data-color]:hover .icon,
+.user[data-color]:focus-within .icon {
+  border-color: var(--text);
+}
+
+/* ---------- Search + filter bar ---------- */
+.filterbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.search-input {
+  width: 100%;
+  max-width: 200px;
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  background-color: var(--card);
+  border: 1px solid var(--card);
+  outline: none;
+  user-select: text;
+  transition: background-color 0.2s ease-out;
+}
+
+.search-input::placeholder {
+  color: var(--dim);
+}
+
+.search-input:hover {
+  background-color: var(--card-hover);
+}
+
+.search-input:focus {
+  outline: 1px solid var(--focus);
+  outline-offset: -1px;
+}
+
+.empty-note {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 12px 0;
+}
+
+/* ---------- Multi-select bar ---------- */
+.selbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sel-count {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+#selRemove:hover {
+  background: var(--err);
+  color: var(--text);
+}
+
+/* A selected tile keeps its tag colour on the border, so the selection has to
+   read somewhere else — an outer ring, which stacks with any border. */
+.user.is-selected .icon {
+  box-shadow: 0 0 0 2px var(--focus), 0 4px 12px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* ---------- Right-click tag menu ---------- */
+.ctxmenu {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  background: var(--btn);
+  border-radius: var(--radius);
+  box-shadow: var(--popup-shadow);
+  animation: dialog-in 120ms ease-out;
+}
+
+/* ---------- Account detail panel ---------- */
+/* The fact list grows with what Steam knows (cooldown, last used, level, bans…),
+   so instead of tuning sizes until six rows happen to fit, the panel claims the
+   stage height and gives the overflow to the facts alone. The head and the
+   actions are outside that scroll area, which is the actual requirement: the
+   Sign in button must never be the thing pushed off screen. */
+.account-detail {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 420px;
+  max-height: 100%;
+  min-height: 0;
+  margin: 0 auto;
+}
+
+/* `max-height: 100%` above only means the stage height if this view actually has
+   one — the shared `.view` rule sizes to content via `margin: auto`. */
+#accountView {
+  height: 100%;
+  margin: 0;
+  justify-content: center;
+}
+
+.account-head,
+.chip-row,
+.cta-row {
+  flex: none;
+}
+
+.account-facts {
+  overflow-y: auto;
+  /* Required, not decorative: setting only `overflow-y` makes `overflow-x`
+     compute to `auto` rather than stay `visible`, so the 4px hover chip on a
+     copyable value was raising a horizontal scrollbar across the fact list. */
+  overflow-x: hidden;
+  min-height: 0;
+}
+
+.account-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   min-width: 0;
 }
 
-.row-name {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.account-avatar {
+  display: block;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: var(--radius);
+  border: 2px solid #23262e;
+  background: #1c1c21;
+}
+
+.account-avatar img,
+.account-avatar .default-avatar {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.account-avatar.is-banned img,
+.account-avatar.is-banned .default-avatar {
+  filter: grayscale(1) brightness(0.5);
+}
+
+.account-names {
+  min-width: 0;
+}
+
+.account-persona {
   font-size: 15px;
   font-weight: 500;
   color: var(--text);
-}
-
-.row-name > span:first-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.row-login {
-  font-size: 13px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-top: 2px;
+.account-persona.is-online {
+  color: #6dcff6;
 }
 
-.row-tag {
-  display: inline-flex;
+.account-persona.is-ingame {
+  color: #8cd61d;
+}
+
+.account-persona.is-away {
+  color: #4c91ac;
+}
+
+.account-login {
+  font-size: 12px;
+  color: #8b929a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-facts {
+  margin-top: 12px;
+}
+
+.fact {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 12px;
+  line-height: 17px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.fact:last-child {
+  border-bottom: none;
+}
+
+.fact dt {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.fact dd {
+  color: var(--body);
+  text-align: right;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Copyable values act like values, not buttons — the affordance is the hover.
+   This is where "copy the Steam ID / the login code" lives, because putting it in
+   its own row cost the panel a line it does not have. */
+.fact dd[data-copy] {
+  cursor: pointer;
+  border-radius: var(--radius);
+  padding: 0 4px;
+  transition: background-color 0.15s ease-out, color 0.15s ease-out;
+}
+
+.fact dd[data-copy]:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.fact dd.copied {
+  color: #59bf40;
+}
+
+/* A partly-scrolled row should read as "there is more", not as a rendering bug. */
+.account-facts.is-scrollable {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), transparent);
+}
+
+.fact.bad dd {
+  color: var(--err);
+}
+
+.fact.good dd {
+  color: #59bf40;
+}
+
+/* ---------- Chip rows (cooldown presets, tag picker) ---------- */
+.chip-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  min-height: 24px;
+}
+
+.chip-row-center {
+  justify-content: center;
+}
+
+/* The tag menu doubles as a command menu, so it needs to stack. */
+.ctxmenu-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.ctxmenu-sep {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 3px 0;
+}
+
+.ctxitem {
+  border: none;
+  background: none;
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 15px;
+  text-align: left;
+  color: var(--body);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s ease-out, color 0.12s ease-out;
+}
+
+.ctxitem:hover {
+  background: var(--btn-hover);
+  color: var(--text);
+}
+
+.ctxitem:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: -1px;
+}
+
+.chip-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  flex: 0 0 62px;
+}
+
+.chips {
+  display: flex;
   align-items: center;
   gap: 5px;
-  flex-shrink: 0;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.chip {
+  border: none;
+  border-radius: var(--radius);
+  padding: 3px 8px;
+  font-family: inherit;
   font-size: 11px;
-  font-weight: 500;
-  color: var(--ok);
-  background: var(--ok-bg);
-  border-radius: var(--radius-pill);
-  padding: 2px 9px;
-  line-height: 1.4;
+  line-height: 15px;
+  color: var(--body);
+  background: rgba(59, 63, 72, 0.5);
+  cursor: pointer;
+  transition: background-color 0.15s ease-out, color 0.15s ease-out;
 }
 
-.row-tag::before {
-  content: "";
-  width: 6px;
-  height: 6px;
+.chip:hover {
+  background: var(--btn-hover);
+  color: var(--text);
+}
+
+.chip.is-on {
+  background: var(--blue);
+  color: var(--text);
+}
+
+.chip:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* ---------- Signing in ----------
+   Valve uses a 100px steam_spinner.png here; we can't ship their art, so the
+   throbber is a CSS ring. Sizes and the avatar+name row below are Valve's. */
+.loader {
+  position: relative;
+  width: 64px;
+  height: 64px;
+}
+
+.loader-ring {
+  position: absolute;
+  inset: 0;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: var(--blue);
   border-radius: 50%;
-  background: var(--ok);
-  flex-shrink: 0;
-  box-shadow: 0 0 0 3px var(--ok-bg);
+  animation: spin 0.9s linear infinite;
 }
 
-.row-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
-/* ---------- Empty state ---------- */
-.empty {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 48px 24px;
+.loader-text {
+  margin-top: 16px;
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--text);
   text-align: center;
 }
 
-.empty-icon {
-  color: var(--text-faint);
-  margin-bottom: 10px;
+.loader-who {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 12px 6px 8px;
+  border-radius: var(--radius);
+  margin-top: 12px;
+  max-width: 100%;
+  min-width: 0;
 }
 
-.empty-icon svg {
-  display: block;
-}
-
-.empty-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.empty-sub {
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-.empty .btn {
-  margin-top: 16px;
-}
-
-.list:empty {
-  padding: 0;
-}
-
-/* ---------- Overlays / dialogs ---------- */
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--scrim);
+.loader-avatar {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #1c1c21;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.loader-avatar img,
+.loader-avatar .default-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.loader-name {
+  color: #dcdedf;
+  font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- Panels (Steam's two-column sign-in body) ---------- */
+.panel {
+  display: flex;
+  flex-direction: row;
+  gap: 40px;
+  width: 100%;
+  max-width: 700px;
+}
+
+
+
+.panel-single {
+  display: block;
+  max-width: 560px;
+}
+
+.add-form {
+  flex: none;
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+}
+
+/* Valve's TextField: label on the left, an action on the right, input below.
+   The label is grey and turns blue only while the field has focus. */
+.field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 3px;
+}
+
+.field-label {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  user-select: none;
+  transition: color 0.2s ease-out;
+}
+
+.field:focus-within .field-label {
+  color: var(--blue);
+  font-weight: 500;
+}
+
+.cta-row {
+  display: flex;
+  flex: none;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* Valve centres its sign-in CTA at a fixed width rather than stretching it. */
+.cta-row .lbtn {
+  flex: 0 0 auto;
+  width: 230px;
+  max-width: 100%;
+  min-height: 34px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+/* Destructive sibling of a primary CTA: same row so the panel stays short, but
+   visually recessive so it never reads as the thing you came here to press. */
+.cta-row .lbtn-quiet {
+  width: auto;
+  padding-inline: 16px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.cta-row .lbtn-quiet:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--err-strong);
+}
+
+.pane-title {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--blue);
+  margin-bottom: 6px;
+}
+
+/* Section break inside a settings pane that is long enough to need one. */
+.pane-title-sub {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--divider);
+}
+
+select.text-input {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.version-text {
+  font-size: 11px;
+  color: var(--body);
+  font-family: var(--font-mono);
+}
+
+.logbox {
+  margin-top: 8px;
+  max-height: 130px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: var(--inner);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius);
+  padding: 0 3px;
+}
+
+textarea {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  max-height: 120px;
+  resize: none;
+  overflow-y: auto;
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 10px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  background-color: var(--card);
+  border: 1px solid var(--card);
+  outline: none;
+  user-select: text;
+  transition: background-color 0.2s ease-out, border-color 0.2s ease-out;
+}
+
+textarea {
+  scrollbar-width: none;
+}
+
+textarea::-webkit-scrollbar {
+  display: none;
+}
+
+textarea:hover {
+  background-color: var(--card-hover);
+}
+
+textarea:focus {
+  outline: 1px solid var(--focus);
+  outline-offset: -1px;
+}
+
+.aside-text {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.aside-dim {
+  color: var(--dim);
+}
+
+/* ---------- Buttons ---------- */
+.btn-row {
+  display: flex;
+  margin-top: 12px;
+  gap: 12px;
+}
+
+.lbtn {
+  flex: 1;
+  border: none;
+  border-radius: var(--radius);
+  padding: 7px 12px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.2s ease-out;
+}
+
+.lbtn:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.lbtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.lbtn-secondary {
+  background: var(--btn);
+}
+
+.lbtn-secondary:hover {
+  background: var(--btn-hover);
+}
+
+.lbtn-secondary:active {
+  background: var(--btn-active);
+}
+
+.lbtn-primary {
+  background: var(--blue-grad);
+}
+
+.lbtn-primary:hover {
+  background: var(--blue-grad-hover);
+}
+
+.lbtn-primary:active {
+  background: var(--blue-grad-active);
+}
+
+.lbtn-danger {
+  background: var(--err);
+}
+
+.lbtn-danger:hover {
+  background: var(--err-strong);
+}
+
+.form-msg {
+  margin-top: 10px;
+  min-height: 16px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.form-msg.err {
+  color: var(--err);
+}
+
+/* ---------- Text field (Steam Web API key) ---------- */
+.key-row {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.text-input {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius);
+  padding: 7px 9px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background-color: var(--card);
+  border: 1px solid var(--card);
+  outline: none;
+  user-select: text;
+  transition: background-color 0.2s ease-out;
+}
+
+.text-input:hover {
+  background-color: var(--card-hover);
+}
+
+.text-input:focus {
+  outline: 1px solid var(--focus);
+  outline-offset: -1px;
+}
+
+.key-state {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.key-state.ok {
+  color: #59bf40;
+}
+
+.key-state.err {
+  color: var(--err);
+}
+
+/* ---------- Settings checkboxes (Steam's login checkbox) ---------- */
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--divider);
+  cursor: pointer;
+}
+
+.check-row:last-child {
+  border-bottom: none;
+}
+
+.check {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  border-radius: var(--radius);
+  background-color: var(--card);
+  cursor: pointer;
+  position: relative;
+  transition: background-color 0.2s ease-out;
+}
+
+.check:hover {
+  background-color: var(--card-hover);
+}
+
+.check:checked {
+  background-color: var(--blue);
+}
+
+.check::after {
+  content: "";
+  position: absolute;
+  left: 5.5px;
+  top: 2px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--text);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) scale(0);
+  transition: transform 0.15s ease-out;
+}
+
+.check:checked::after {
+  transform: rotate(45deg) scale(1);
+}
+
+.check:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.check-text {
+  min-width: 0;
+}
+
+.check-label {
+  display: block;
+  font-size: 12px;
+  color: var(--body);
+}
+
+.check-desc {
+  display: block;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* ---------- Bottom bar (Steam's login footer) ---------- */
+.footlinks {
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 2px 12px 8px;
+}
+
+.footlinks-left,
+.footlinks-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* Icon buttons. Four underlined sentences were most of the visual weight in a
+   360px-tall window; these say the same thing in a quarter of the space and
+   name themselves on hover. */
+.ficon {
+  position: relative;
+  width: 28px;
+  height: 26px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color 0.15s ease-out, color 0.15s ease-out;
+}
+
+.ficon svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+
+.ficon:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.ficon:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.ficon-danger:hover {
+  color: var(--err-strong);
+}
+
+/* The "show all / show 8" toggle swaps glyphs rather than moving. */
+.ficon .ic-row,
+.ficon.is-on .ic-grid {
+  display: none;
+}
+
+.ficon.is-on .ic-row {
+  display: block;
+}
+
+/* Tooltip. Anchored to the outer edge of its group so it can never run off the
+   window — a centred one would clip on the first and last button. */
+.ficon::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 5px);
+  background: var(--btn);
+  color: var(--body);
+  font-size: 11px;
+  line-height: 1.3;
+  padding: 4px 7px;
+  border-radius: var(--radius);
+  white-space: nowrap;
+  box-shadow: var(--popup-shadow);
+  opacity: 0;
+  transform: translateY(3px);
+  pointer-events: none;
+  transition: opacity 0.14s ease-out, transform 0.14s ease-out;
+}
+
+.footlinks-left .ficon::after {
+  left: 0;
+}
+
+.footlinks-right .ficon::after {
+  right: 0;
+}
+
+.ficon:hover::after,
+.ficon:focus-visible::after {
+  opacity: 1;
+  transform: none;
+}
+
+.flink {
+  border: none;
+  background: none;
+  padding: 4px 0;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+  transition: color 0.2s ease-out;
+}
+
+.flink:hover {
+  color: rgb(200, 200, 200);
+}
+
+.flink:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ---------- Confirm dialog ---------- */
+.overlay {
+  position: fixed;
+  inset: 0;
   z-index: 50;
-  padding: 16px;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
 }
 
 .dialog {
-  width: 380px;
-  max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-modal);
+  width: 340px;
+  max-width: 100%;
+  background: var(--panel-grad);
+  border-radius: var(--radius);
+  box-shadow: var(--popup-shadow);
   padding: 18px;
-  animation: dialog-in 150ms var(--ease-emphasis);
+  animation: dialog-in 140ms ease-out;
 }
 
 @keyframes dialog-in {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.98);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: none;
   }
 }
 
-.dialog-sm {
-  width: 320px;
-}
-
-.dialog-settings {
-  width: 420px;
-}
-
-.dialog-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-  font-weight: 600;
-  font-size: 15px;
+.dialog-title {
+  font-size: 13px;
+  line-height: 17px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
   color: var(--text);
-}
-
-.dialog-head .btn-icon {
-  margin-right: -6px;
+  margin-bottom: 10px;
 }
 
 .dialog-text {
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin-bottom: 12px;
-  line-height: 1.5;
-}
-
-textarea {
-  width: 100%;
-  height: 84px;
-  resize: vertical;
-  background: var(--input-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 10px;
-  color: var(--text);
-  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
+  color: var(--muted-2);
+  margin-bottom: 4px;
+  /* Release notes can run long; the buttons below must stay reachable. */
+  max-height: 150px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   user-select: text;
-  transition: var(--t-control);
-}
-
-textarea::placeholder {
-  color: var(--text-muted);
-}
-
-textarea:focus {
-  outline: none;
-  border-color: var(--border-strong);
-  box-shadow: var(--focus-ring);
-}
-
-.dialog-foot {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  margin-top: 16px;
-}
-
-.dialog-msg {
-  margin-top: 10px;
-  font-size: 11px;
-  min-height: 14px;
-  color: var(--text-muted);
-}
-
-.dialog-msg.err {
-  color: var(--danger);
-}
-
-/* ---------- Settings ---------- */
-.settings-list {
-  display: flex;
-  flex-direction: column;
-}
-
-.setting-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  cursor: pointer;
-  padding: 12px 0;
-  border-top: 1px solid var(--border);
-}
-
-.setting-row:first-child {
-  border-top: none;
-  padding-top: 4px;
-}
-
-.setting-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.setting-label {
-  display: block;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text);
-}
-
-.setting-desc {
-  display: block;
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 2px;
-  line-height: 1.4;
-}
-
-/* ---------- Toggle ---------- */
-.toggle {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 34px;
-  height: 20px;
-  border-radius: var(--radius-pill);
-  background: var(--toggle-off);
-  flex-shrink: 0;
-  margin-top: 1px;
-  position: relative;
-  cursor: pointer;
-  transition: background 150ms ease;
-}
-
-.toggle::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--toggle-knob);
-  box-shadow: var(--toggle-knob-shadow);
-  transition: transform 150ms ease, background 150ms ease;
-}
-
-.toggle:checked {
-  background: var(--toggle-on);
-}
-
-.toggle:checked::after {
-  transform: translateX(14px);
-  background: var(--toggle-knob-on);
-}
-
-.toggle:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
 }
 
 /* ---------- Toasts ---------- */
 .toast-wrap {
   position: fixed;
   right: 14px;
-  bottom: 14px;
+  bottom: 46px;
+  z-index: 100;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  z-index: 100;
   pointer-events: none;
 }
 
 .toast {
-  min-width: 220px;
-  max-width: 340px;
-  background: var(--toast-bg);
-  border: 1px solid var(--toast-border);
-  border-radius: var(--radius-md);
-  padding: 10px 14px;
+  /* Steam's popup surface, verbatim — no accent bar, no border. */
+  max-width: 260px;
+  background: var(--btn);
+  border-radius: var(--radius);
+  padding: 7px 10px;
   font-size: 12px;
   line-height: 1.4;
-  color: var(--toast-text);
-  box-shadow: var(--shadow-toast);
-  animation: toast-in 120ms var(--ease-out);
+  color: var(--body);
+  box-shadow: var(--popup-shadow);
+  animation: toast-in 160ms ease-out;
   pointer-events: auto;
 }
 
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateX(10px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 
 .toast.err {
-  color: var(--toast-text-err);
+  color: var(--err-text);
 }
 
-.toast.busy {
-  color: var(--text-muted);
+/* ---------- Scrollbar (Steam: thumb only, revealed on hover) ---------- */
+.stage::-webkit-scrollbar,
+.account-facts::-webkit-scrollbar {
+  width: 8px;
 }
 
-/* ---------- Scrollbar ---------- */
-.list-wrap::-webkit-scrollbar,
-.dialog::-webkit-scrollbar {
-  width: 10px;
-}
-
-.list-wrap::-webkit-scrollbar-track,
-.dialog::-webkit-scrollbar-track {
+.stage::-webkit-scrollbar-track,
+.account-facts::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.list-wrap::-webkit-scrollbar-thumb,
-.dialog::-webkit-scrollbar-thumb {
-  background: var(--scroll-thumb);
-  border-radius: var(--radius-pill);
-  border: 3px solid transparent;
+.stage::-webkit-scrollbar-thumb,
+.account-facts::-webkit-scrollbar-thumb {
+  background-color: rgba(67, 73, 83, 0.6);
   background-clip: padding-box;
 }
 
-.list-wrap::-webkit-scrollbar-thumb:hover,
-.dialog::-webkit-scrollbar-thumb:hover {
-  background: var(--scroll-thumb-hover);
-  border: 3px solid transparent;
+.stage:hover::-webkit-scrollbar-thumb,
+.account-facts:hover::-webkit-scrollbar-thumb {
+  background-color: #434953;
   background-clip: padding-box;
+}
+
+.stage::-webkit-scrollbar-thumb:hover,
+.account-facts::-webkit-scrollbar-thumb:hover {
+  background-color: #58606d;
+  background-clip: padding-box;
+}
+
+/* ---------- Narrow windows ----------
+   The default is 780x500, so these are genuine "user shrank it" cases, not the
+   everyday state — otherwise the base scale above would be dead code.
+   Shrinking the tile here means MORE fit per row before wrapping; it never
+   changes with the number of tiles, only with the window. */
+/* Only the gap and the add tile tighten on a narrow window now — the tile width
+   follows the row automatically, so it needs no breakpoints of its own. */
+@media (max-width: 660px) {
+  :root {
+    --tile-gap: 9px;
+  }
+
+  .panel {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .whos-playing {
+    font-size: 19px;
+    padding: 4px 0;
+  }
+
+  .stage {
+    padding: 6px 14px;
+  }
+
+  .footlinks {
+    padding: 2px 8px 6px;
+  }
+}
+
+/* ---------- Short windows ----------
+   Shed height from the head and the rows rather than let the fact list collapse
+   to three visible rows out of six. */
+@media (max-height: 470px) {
+  :root {
+    --tile-gap: 9px;
+  }
+
+  .whos-playing {
+    font-size: 18px;
+    padding: 2px 0;
+  }
+
+  .account-avatar {
+    width: 44px;
+    height: 44px;
+  }
+
+  .account-facts {
+    margin-top: 8px;
+  }
+
+  .fact {
+    padding: 2px 0;
+    line-height: 16px;
+  }
+
+  .chip-row {
+    margin-top: 7px;
+  }
+
+  .cta-row {
+    margin-top: 10px;
+  }
 }
 
 /* ---------- Utilities ---------- */

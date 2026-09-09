@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::paths::{get_steam_path, steamid64_to_steamid3};
+use super::paths::{get_steam_path, localconfig_path, steamid64_to_steamid3};
 use super::vdf::quoted_fields;
 
 #[derive(Clone, Default, PartialEq)]
@@ -62,7 +62,10 @@ pub fn load_steam_accounts() -> Result<Vec<SteamAccount>, String> {
     let mut seen: HashSet<String> = accounts.iter().map(|a| a.steamid.clone()).collect();
     for account in &mut accounts {
         if let Some(rec) = records.get(&account.steamid) {
-            account.token = Some(rec.token.clone());
+            // Empty means the stored blob would not decrypt on this machine. Treat
+            // that as "no token" so sign-in falls back to Steam's own cache rather
+            // than writing an empty JWT over a working one.
+            account.token = Some(rec.token.clone()).filter(|t| !t.is_empty());
             if account.account_name.is_empty() {
                 account.account_name = rec.account_name.clone();
             }
@@ -77,13 +80,18 @@ pub fn load_steam_accounts() -> Result<Vec<SteamAccount>, String> {
                 steamid: steamid.clone(),
                 account_name: rec.account_name.clone(),
                 persona_name: rec.persona_name.clone(),
-                token: Some(rec.token.clone()),
+                token: Some(rec.token.clone()).filter(|t| !t.is_empty()),
                 ..Default::default()
             });
         }
     }
 
     for account in &mut accounts {
+        // loginusers.vdf carries no Avatar field; Steam records each account's own
+        // avatar hash inside that account's localconfig.vdf instead.
+        if account.avatar_hash.is_none() {
+            account.avatar_hash = read_own_avatar_hash(steam_path, &account.steamid);
+        }
         account.avatar_path = find_avatar_path(steam_path, account);
     }
     accounts.sort_by(|a, b| {
@@ -134,6 +142,58 @@ fn parse_loginusers(content: &str) -> Vec<SteamAccount> {
     accounts
 }
 
+/// Reads the account's own avatar hash out of its `localconfig.vdf`, where Steam
+/// stores it under `friends` -> "<steamid3>" -> "avatar". Returns `None` when the
+/// file is absent, the account has no self entry, or the hash is the all-zero
+/// placeholder Steam uses for "no avatar set".
+fn read_own_avatar_hash(steam_path: &Path, steamid: &str) -> Option<String> {
+    let steamid3 = steamid64_to_steamid3(steamid).ok()?;
+    let content = fs::read_to_string(localconfig_path(steam_path, &steamid3)).ok()?;
+
+    let mut in_self = false;
+    let mut depth = 0i32;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        if !in_self {
+            let fields = quoted_fields(line);
+            if fields.len() == 1 && fields[0] == steamid3 {
+                in_self = true;
+            }
+            continue;
+        }
+
+        if trimmed == "{" {
+            depth += 1;
+            continue;
+        }
+        if trimmed == "}" {
+            depth -= 1;
+            if depth <= 0 {
+                break;
+            }
+            continue;
+        }
+
+        let fields = quoted_fields(line);
+        if depth == 1 && fields.len() >= 2 && fields[0] == "avatar" {
+            let hash = fields[1].trim().to_ascii_lowercase();
+            let usable = hash.len() == 40
+                && hash.chars().all(|c| c.is_ascii_hexdigit())
+                && hash.chars().any(|c| c != '0');
+            return usable.then_some(hash);
+        }
+    }
+
+    None
+}
+
+/// Steam's public avatar CDN. `_full` is the 184px variant.
+pub fn avatar_cdn_url(hash: &str) -> String {
+    format!("https://avatars.steamstatic.com/{hash}_full.jpg")
+}
+
 fn find_avatar_path(steam_path: &Path, account: &SteamAccount) -> Option<PathBuf> {
     if let Some(path) = find_in_avatarcache(steam_path, account) {
         return Some(path);
@@ -161,7 +221,10 @@ fn find_in_avatarcache(steam_path: &Path, account: &SteamAccount) -> Option<Path
         return None;
     }
 
-    let hash = account.avatar_hash.as_deref();
+    let hash = account
+        .avatar_hash
+        .as_deref()
+        .filter(|hash| !hash.trim().is_empty());
     let steamid = account.steamid.as_str();
 
     if let Some(hash) = hash {
@@ -194,7 +257,9 @@ fn find_in_avatarcache(steam_path: &Path, account: &SteamAccount) -> Option<Path
     let entries = fs::read_dir(&avatar_dir).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
-        let file_name = path.file_name()?.to_string_lossy().to_lowercase();
+        let Some(file_name) = path.file_name().map(|n| n.to_string_lossy().to_lowercase()) else {
+            continue;
+        };
         let stem = path
             .file_stem()
             .map(|s| s.to_string_lossy().to_lowercase())

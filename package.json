@@ -1,8 +1,8 @@
 {
-  "name": "archievable",
+  "name": "nfa-pub-tool",
   "version": "0.3.0",
   "private": true,
-  "description": "archievable.shop Steam cache login desktop app",
+  "description": "nfa.pub tool — Steam cache login desktop app",
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",

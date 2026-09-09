@@ -116,7 +116,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           $setup = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
           if (-not $setup) { Write-Error "No NSIS installer found in src-tauri/target/release/bundle/nsis/"; exit 1 }
-          $name = "archievable-${{ steps.meta.outputs.version }}-setup.exe"
+          $name = "nfa-pub-tool-${{ steps.meta.outputs.version }}-setup.exe"
           Copy-Item $setup.FullName "dist/$name"
           "asset_name=$name" >> $env:GITHUB_ENV
           "asset_path=dist/$name" >> $env:GITHUB_ENV
@@ -170,7 +170,7 @@ jobs:
             title = "Release $env:VERSION"
             url = $releaseUrl
             description = @"
-          A new **archievable** build is ready.
+          A new **nfa.pub tool** build is ready.
 
           Download the Windows installer attached below, run it, then open the app.
           "@.Trim()

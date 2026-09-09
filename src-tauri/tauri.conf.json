@@ -1,8 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "archievable",
+  "productName": "nfa.pub tool",
   "version": "0.3.0",
   "identifier": "shop.archievable.desktop",
+  "mainBinaryName": "nfa-pub-tool",
   "build": {
     "frontendDist": "../ui"
   },
@@ -11,16 +12,16 @@
     "windows": [
       {
         "label": "main",
-        "title": "archievable",
-        "width": 520,
-        "height": 640,
-        "minWidth": 420,
-        "minHeight": 480,
+        "title": "nfa.pub tool",
+        "width": 880,
+        "height": 560,
+        "minWidth": 560,
+        "minHeight": 430,
         "resizable": true,
         "center": true,
         "decorations": false,
         "theme": "Dark",
-        "backgroundColor": "#0F0F0F"
+        "backgroundColor": "#191A1E"
       }
     ],
     "security": {

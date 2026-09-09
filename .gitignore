@@ -40,3 +40,10 @@ out.txt
 
 # Tauri generated (regenerated on build)
 src-tauri/gen/
+
+# Internal roadmap — keep private until ready to release
+ROADMAP.md
+
+# Throwaway UI harness: a copy of ui/ plus a mock Tauri bridge, used to drive the
+# frontend in a browser without building the app. Regenerated on demand.
+.preview/

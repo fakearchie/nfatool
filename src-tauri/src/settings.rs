@@ -15,6 +15,40 @@ pub struct AppSettings {
     pub launch_steam_minimized: bool,
     #[serde(default)]
     pub mute_notifications_on_login: bool,
+    #[serde(default = "default_true")]
+    pub fetch_missing_avatars: bool,
+    /// Optional Steam Web API key. Unlocks level and ban flags; without it we
+    /// fall back to the public profile XML for online status only.
+    #[serde(default)]
+    pub steam_api_key: String,
+    /// Exclude the window from screen capture (OBS, Discord, Snipping Tool).
+    ///
+    /// Off by default, matching `streamer_mode`: the app should not assume you are
+    /// streaming, and turning it on silently would make the window screenshot as a
+    /// black rectangle — which reads as a bug, not a feature, to anyone who did not
+    /// ask for it.
+    #[serde(default)]
+    pub hide_from_capture: bool,
+
+    // ---- Counter-Strike 2 ----
+    /// Launch options written to every account on sign-in. Empty leaves whatever
+    /// the account already has, which is why this is a string and not an Option.
+    #[serde(default)]
+    pub cs2_launch_options: String,
+    /// SteamID64 whose CS2 settings tree is copied onto the account being signed
+    /// in. Empty disables the copy.
+    #[serde(default)]
+    pub cs2_config_source: String,
+    /// Mark subscribed Workshop items `disabled_locally` so signing in doesn't
+    /// re-download them.
+    #[serde(default)]
+    pub suppress_workshop_downloads: bool,
+    /// Turn Steam Remote Play off for the account being signed in.
+    #[serde(default)]
+    pub disable_remote_play: bool,
+    /// Launch CS2 straight after Steam starts.
+    #[serde(default)]
+    pub launch_cs2_on_login: bool,
 }
 
 fn default_true() -> bool {
@@ -29,6 +63,14 @@ impl Default for AppSettings {
             streamer_mode: false,
             launch_steam_minimized: false,
             mute_notifications_on_login: false,
+            fetch_missing_avatars: true,
+            steam_api_key: String::new(),
+            hide_from_capture: false,
+            cs2_launch_options: String::new(),
+            cs2_config_source: String::new(),
+            suppress_workshop_downloads: false,
+            disable_remote_play: false,
+            launch_cs2_on_login: false,
         }
     }
 }

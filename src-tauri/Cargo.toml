@@ -2,7 +2,7 @@
 name = "archievable"
 version = "0.3.0"
 edition = "2021"
-description = "archievable.shop Steam cache login"
+description = "nfa.pub tool — Steam cache login"
 authors = ["archievable.shop"]
 build = "build.rs"
 
@@ -16,12 +16,16 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-notification = "2"
+# Used only from Rust commands, never from the webview — so the frontend needs no
+# extra capability and gains no filesystem reach.
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
 base64 = "0.22"
 clipboard = "0.5"
 crc32fast = "1.4"
 winreg = "0.52"
+ureq = { version = "2", features = ["json"] }
 
 [dependencies.windows]
 version = "0.56"
@@ -30,6 +34,7 @@ features = [
     "Win32_Security_Cryptography",
     "Win32_System_Console",
     "Win32_System_Registry",
+    "Win32_UI_WindowsAndMessaging",
 ]
 
 [profile.release]

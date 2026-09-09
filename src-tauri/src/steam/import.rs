@@ -11,6 +11,14 @@ pub fn read_clipboard() -> Result<String, String> {
         .map_err(|_| "Failed to read clipboard. Copy the payload again and retry.".to_string())
 }
 
+pub fn write_clipboard(text: &str) -> Result<(), String> {
+    let mut clipboard = clipboard::ClipboardContext::new()
+        .map_err(|_| "Clipboard is not available.".to_string())?;
+    clipboard
+        .set_contents(text.to_string())
+        .map_err(|_| "Failed to write to the clipboard.".to_string())
+}
+
 pub(crate) fn split_batch_payloads(content: &str) -> Vec<String> {
     let cleaned = sanitize_clipboard_input(content);
     let trimmed = cleaned.trim();
@@ -195,7 +203,7 @@ fn is_steamid(value: &str) -> bool {
     (15..=20).contains(&value.len()) && value.chars().all(|c| c.is_ascii_digit())
 }
 
-fn extract_jwt_token(input: &str) -> Option<String> {
+pub(crate) fn extract_jwt_token(input: &str) -> Option<String> {
     let cleaned = sanitize_clipboard_input(input);
     let collapsed = collapse_import_payload(cleaned.trim());
 
@@ -255,7 +263,20 @@ fn is_jwt_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '=')
 }
 
-fn looks_like_jwt(token: &str) -> bool {
+/// The token's `exp` claim, in unix seconds. `None` when the token has no expiry
+/// or cannot be parsed — callers must treat that as "don't know", never as expired,
+/// or an unreadable token would get pruned out from under the user.
+pub fn token_expiry(jwt: &str) -> Option<i64> {
+    let payload = decode_jwt_payload(jwt).ok()?;
+    let json: serde_json::Value = serde_json::from_slice(&payload).ok()?;
+    json.get("exp")?.as_i64()
+}
+
+pub(crate) fn token_expired(jwt: &str, now: i64) -> bool {
+    token_expiry(jwt).is_some_and(|exp| exp <= now)
+}
+
+pub(crate) fn looks_like_jwt(token: &str) -> bool {
     let token = normalize_clipboard_token(token);
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
@@ -339,6 +360,27 @@ mod tests {
     fn split_single_stays_one() {
         let parts = split_batch_payloads(SPACED_JWT);
         assert_eq!(parts.len(), 1);
+    }
+
+    #[test]
+    fn expiry_is_read_from_the_payload() {
+        // {"exp":1700000000,"sub":"7656119"} — a token that carries an expiry.
+        let jwt = "eyJhbGciOiJFZERTQSJ9.eyJleHAiOjE3MDAwMDAwMDAsInN1YiI6Ijc2NTYxMTkifQ.sig";
+        assert_eq!(token_expiry(jwt), Some(1_700_000_000));
+        assert!(token_expired(jwt, 1_700_000_001));
+        assert!(!token_expired(jwt, 1_699_999_999));
+    }
+
+    /// An unreadable token must never be reported as expired, or pruning would
+    /// silently delete accounts it merely failed to parse.
+    #[test]
+    fn unreadable_tokens_are_never_expired() {
+        assert_eq!(token_expiry("not-a-jwt"), None);
+        assert!(!token_expired("not-a-jwt", i64::MAX));
+        // Valid shape, payload has no `exp`.
+        let no_exp = "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiI3NjU2MTE5In0.sig";
+        assert_eq!(token_expiry(no_exp), None);
+        assert!(!token_expired(no_exp, i64::MAX));
     }
 
     #[test]
