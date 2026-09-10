@@ -292,7 +292,7 @@ function render() {
         .join(" ");
       const color = m.color ? ` data-color="${escapeAttr(m.color)}"` : "";
       return `
-        <div class="user existing ${state}"${color} role="button" tabindex="0" data-account="${escapeAttr(acc.steamid)}" aria-label="${escapeAttr(view.display_name)} — open account">
+        <div class="user existing ${state}"${color} role="button" tabindex="0" data-account="${escapeAttr(acc.steamid)}" aria-label="${escapeAttr(view.display_name)}, open account">
           <div class="icon">${iconInner(view)}</div>
           <div class="name persona">${escapeHtml(view.display_name)}</div>
           <div class="name account">${escapeHtml(view.account_name)}</div>
@@ -358,7 +358,7 @@ let openAccountId = null;
 
 function statusText(info) {
   if (!info) return "Unknown";
-  if (info.game) return `In game — ${info.game}`;
+  if (info.game) return `In game: ${info.game}`;
   switch (info.persona_state) {
     case 0:
       return "Offline";
@@ -697,10 +697,10 @@ listen("sign-in-result", (e) => {
 
 function offerRemoval(steamid, name) {
   openConfirm(
-    "Login code no longer works",
-    `Steam wouldn't accept the saved code for ${name}, so it is asking you to sign in ` +
-      `manually instead. That usually means the code was revoked — changing the ` +
-      `password or signing out everywhere does it. Remove this account?`,
+    "Steam rejected this login code",
+    `Steam refused the saved code for ${name} and is asking for a manual sign in. ` +
+      `Codes stop working after a password change, or after signing out of all devices. ` +
+      `Remove ${name}?`,
     "Remove",
     async () => {
       try {
@@ -1007,7 +1007,7 @@ async function toggleLog() {
     const lines = await invoke("get_log");
     logBox.textContent = lines.length
       ? lines.join("\n")
-      : "Nothing to report — no quiet failures this session.";
+      : "Nothing went wrong this session.";
     logBox.classList.remove("hidden");
     logBtn.textContent = "Hide";
   } catch (e) {
@@ -1387,8 +1387,8 @@ el("vaultToggleBtn").addEventListener("click", () => {
   }
   openPrompt(
     "Set a password",
-    "Asked for on every start, and used to encrypt your saved login codes. There is no way to " +
-      "reset it — you will get a recovery code to keep.",
+    "Asked for on every start, and used to encrypt your saved login codes. There is no " +
+      "way to reset it, so keep the recovery code you get next.",
     "Set password",
     "New password",
     async (password) => {

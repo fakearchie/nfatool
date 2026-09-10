@@ -49,7 +49,7 @@ fn inject_account_into_config(path: &Path, username: &str, steamid: &str) -> Res
         content.insert_str(insert_pos, &section);
     } else {
         return Err(
-            "Could not update config.vdf — open Steam once so it creates a valid config file."
+            "Could not update config.vdf. Open Steam once so it creates a valid config file."
                 .to_string(),
         );
     }

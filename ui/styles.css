@@ -55,6 +55,7 @@
   --tile-slots: 9;
 }
 
+* {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -92,16 +93,16 @@ body {
   pointer-events: none;
   opacity: 0.72;
   -webkit-mask-image: radial-gradient(
-    130% 140% at 50% 26%,
+    75% 83% at 50% 18%,
     #000 0%,
-    rgba(0, 0, 0, 0.82) 62%,
-    rgba(0, 0, 0, 0.55) 100%
+    rgba(0, 0, 0, 0.6) 76%,
+    rgba(0, 0, 0, 0) 100%
   );
   mask-image: radial-gradient(
-    130% 140% at 50% 26%,
+    75% 83% at 50% 18%,
     #000 0%,
-    rgba(0, 0, 0, 0.82) 62%,
-    rgba(0, 0, 0, 0.55) 100%
+    rgba(0, 0, 0, 0.6) 76%,
+    rgba(0, 0, 0, 0) 100%
   );
 }
 
@@ -298,8 +299,8 @@ body {
   aspect-ratio: 1;
   width: 100%;
   background-color: #1c1c21;
-  border: 2px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 3px 10px 1px rgba(0, 0, 0, 0.38);
+  border: 2px solid #23262e;
+  box-shadow: 0 4px 12px 3px rgba(0, 0, 0, 0.5);
 }
 
 .user.existing .icon > * {

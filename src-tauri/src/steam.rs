@@ -15,7 +15,8 @@ pub use webapi::{AccountIntel, Map as IntelMap};
 pub use import::{read_clipboard, token_expiry, write_clipboard};
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use crate::settings::{load_settings, AppSettings};
@@ -295,6 +296,9 @@ fn apply_active_account(
 }
 
 fn relaunch_steam(steam_path: &str, settings: &AppSettings) -> Result<(), String> {
+    // The log already holds every past logon, including old refusals, so record how
+    // long it is before Steam can append to it. Anything past this mark is ours.
+    LOG_MARK.store(connection_log_len(), Ordering::Relaxed);
     std::thread::sleep(Duration::from_millis(400));
     process::launch_steam(steam_path, settings)?;
     Ok(())
@@ -319,20 +323,94 @@ pub fn rewrite_tokens(records: &[(String, String, String, String)]) -> Result<()
     tokens::rewrite_all(records)
 }
 
+static LOG_MARK: AtomicU64 = AtomicU64::new(0);
+
 pub enum SignInCheck {
     Confirmed,
-    NotSignedIn,
+    Rejected,
     OtherAccount,
+    Unknown,
 }
 
-/// Watches for Steam to sign the account in.
+fn connection_log_path() -> Option<PathBuf> {
+    let path = PathBuf::from(paths::get_steam_path().ok()?)
+        .join("logs")
+        .join("connection_log.txt");
+    path.exists().then_some(path)
+}
+
+fn connection_log_len() -> u64 {
+    connection_log_path()
+        .and_then(|p| fs::metadata(p).ok())
+        .map(|m| m.len())
+        .unwrap_or(0)
+}
+
+/// Reads what Steam wrote to its connection log since we launched it.
 ///
-/// Gives up early rather than running the clock out: once Steam has been up for a
-/// while with nobody signed in, it is sitting on its own login window, and waiting
-/// longer only makes the app look stuck.
+/// Steam rotates the log, so a file shorter than the mark means it started over and
+/// everything in it is new.
+fn log_since_mark() -> String {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let Some(path) = connection_log_path() else {
+        return String::new();
+    };
+    let Ok(mut file) = fs::File::open(path) else {
+        return String::new();
+    };
+    let mark = LOG_MARK.load(Ordering::Relaxed);
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    if len > mark && file.seek(SeekFrom::Start(mark)).is_err() {
+        return String::new();
+    }
+    let mut buffer = Vec::new();
+    if file.read_to_end(&mut buffer).is_err() {
+        return String::new();
+    }
+    String::from_utf8_lossy(&buffer).into_owned()
+}
+
+/// Steam's own verdict on the logon, read out of its connection log.
+///
+/// Every line is prefixed with the account it concerns, as `[U:1:<steamid3>]`, and
+/// the result is an EResult name in quotes. Those names are Steam's internal
+/// identifiers and are not translated, unlike anything it puts on screen.
+fn verdict_in_log(text: &str, expected: u32) -> Option<SignInCheck> {
+    let ours = format!("[U:1:{expected}]");
+
+    for line in text.lines() {
+        if !line.contains("RecvMsgClientLogOnResponse()") {
+            continue;
+        }
+        if !line.contains(&ours) {
+            // A response for somebody else means Steam signed in as another account.
+            if line.contains("'OK'") && line.contains("[U:1:") {
+                return Some(SignInCheck::OtherAccount);
+            }
+            continue;
+        }
+        if line.contains("'OK'") {
+            return Some(SignInCheck::Confirmed);
+        }
+        // 'Access Denied' is the refusal for a revoked or expired login code. Other
+        // results ('Try another CM', 'Failure') are transient and Steam retries them,
+        // so they are deliberately not treated as an answer.
+        if line.contains("'Access Denied'") {
+            return Some(SignInCheck::Rejected);
+        }
+    }
+    None
+}
+
+/// Waits for Steam to say whether it accepted the login code.
+///
+/// Steam's log is the only signal that distinguishes "still starting up" from "the
+/// code was refused". Guessing from elapsed time instead reported a refusal for any
+/// Steam that took longer than the timeout to sign in, which then offered to delete
+/// a perfectly good account.
 pub fn wait_for_sign_in(steamid: &str) -> SignInCheck {
-    const MAX_WAIT: Duration = Duration::from_secs(40);
-    const SETTLE: Duration = Duration::from_secs(12);
+    const MAX_WAIT: Duration = Duration::from_secs(90);
 
     let Ok(expected) = paths::steamid64_to_steamid3(steamid)
         .and_then(|s| s.parse::<u32>().map_err(|_| "bad steamid3".to_string()))
@@ -341,30 +419,90 @@ pub fn wait_for_sign_in(steamid: &str) -> SignInCheck {
     };
 
     let start = std::time::Instant::now();
-    let mut steam_up_since: Option<std::time::Instant> = None;
-    let mut seen_other = 0u32;
 
     while start.elapsed() < MAX_WAIT {
+        // The registry is the cheaper confirmation and settles first on a fast sign-in.
         match process::active_user() {
-            0 => {
-                if process::steam_is_running() {
-                    let up = *steam_up_since.get_or_insert_with(std::time::Instant::now);
-                    if up.elapsed() >= SETTLE {
-                        return SignInCheck::NotSignedIn;
-                    }
-                } else {
-                    steam_up_since = None;
-                }
-            }
+            0 => {}
             id if id == expected => return SignInCheck::Confirmed,
-            other => seen_other = other,
+            _ => return SignInCheck::OtherAccount,
         }
+
+        if let Some(verdict) = verdict_in_log(&log_since_mark(), expected) {
+            return verdict;
+        }
+
         std::thread::sleep(Duration::from_millis(500));
     }
 
-    if seen_other != 0 {
-        SignInCheck::OtherAccount
-    } else {
-        SignInCheck::NotSignedIn
+    // Steam never answered. Saying nothing is right here: an unanswered logon is not
+    // evidence that the code is dead.
+    SignInCheck::Unknown
+}
+
+#[cfg(test)]
+mod sign_in_log_tests {
+    use super::*;
+
+    // Verbatim from Steam's own connection_log.txt.
+    const REFUSED: &str = "\
+[2026-09-10 12:22:49] [Logging On, 4, 7] [U:1:301155508] RecvMsgClientLogOnResponse() : [I:0:0] 'Access Denied'
+[2026-09-10 12:22:49] Clearing in-memory token - 15 (Access Denied): LogonFailureReceived(2)
+[2026-09-10 12:22:50] [Logged Off, 4, 0] [U:1:301155508] ConnectionDisconnected() not auto reconnecting due to Access Denied
+";
+
+    const ACCEPTED: &str = "\
+[2026-09-10 12:23:15] [Connected, 4, 7] [U:1:1595689475] Logging on [U:1:1595689475]
+[2026-09-10 12:23:15] [Logging On, 4, 7] [U:1:1595689475] RecvMsgClientLogOnResponse() : [U:1:1595689475] 'OK'
+[2026-09-10 12:23:15] [Logged On, 4, 7] [U:1:1595689475] RecvMsgClientLogOnResponse() : processing complete
+";
+
+    const STILL_CONNECTING: &str = "\
+[2026-09-10 12:23:14] GetCMListForConnect -- DC 'iad1' count: 4
+[2026-09-10 12:23:15] [Connecting, 4, 0] [U:1:1595689475] PingWebSocketCM() (cmp2-fra1.steamserver.net:27018) starting...
+[2026-09-10 12:23:15] [Connected, 4, 7] [U:1:1595689475] Logging on [U:1:1595689475]
+";
+
+    fn verdict(text: &str, id: u32) -> Option<&'static str> {
+        verdict_in_log(text, id).map(|v| match v {
+            SignInCheck::Confirmed => "ok",
+            SignInCheck::Rejected => "rejected",
+            SignInCheck::OtherAccount => "other",
+            SignInCheck::Unknown => "unknown",
+        })
+    }
+
+    #[test]
+    fn a_refused_code_is_rejected() {
+        assert_eq!(verdict(REFUSED, 301155508), Some("rejected"));
+    }
+
+    #[test]
+    fn an_accepted_code_is_confirmed() {
+        assert_eq!(verdict(ACCEPTED, 1595689475), Some("ok"));
+    }
+
+    /// The whole point of the rewrite: while Steam is still connecting there is no
+    /// answer yet, and reporting one offered to delete a working account.
+    #[test]
+    fn a_slow_start_gives_no_verdict() {
+        assert_eq!(verdict(STILL_CONNECTING, 1595689475), None);
+    }
+
+    #[test]
+    fn another_accounts_refusal_is_not_ours() {
+        assert_eq!(verdict(REFUSED, 1595689475), None);
+    }
+
+    #[test]
+    fn signing_in_as_somebody_else_is_reported() {
+        assert_eq!(verdict(ACCEPTED, 301155508), Some("other"));
+    }
+
+    /// 'Try another CM' and 'Failure' are retried by Steam, so they are not an answer.
+    #[test]
+    fn transient_failures_are_not_a_refusal() {
+        let text = "[2026-09-10 12:22:49] [Logging On, 4, 7] [U:1:301155508] RecvMsgClientLogOnResponse() : 'Try another CM' / 'Failure'\n";
+        assert_eq!(verdict(text, 301155508), None);
     }
 }

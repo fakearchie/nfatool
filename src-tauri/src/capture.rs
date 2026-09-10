@@ -31,12 +31,13 @@ pub fn apply_to_main(app: &tauri::AppHandle, hide: bool) {
     }
 }
 
-// Windows 11 paints a 1px border on every top-level window, frameless ones
-// included. DWMWA_COLOR_NONE is documented as removing it but does NOT on 10.0.26200
-// (the call returns Ok and a #1F2021 line stays); measured pixel-by-pixel. Painting
-// it the app's own colour makes it invisible while keeping the resize edge.
-// COLORREF is 0x00BBGGRR, so #191A1E becomes 0x001E1A19 - keep in step with --window.
-const APP_BACKGROUND: u32 = 0x001E_1A19;
+// Windows 11 paints a 1px border along the TOP edge of a frameless window (the
+// other three sides sit inside an invisible resize frame, so nothing shows there).
+// DWMWA_COLOR_NONE does not remove it on 10.0.26200: the call returns Ok and a
+// #202020 line stays, measured pixel by pixel. Painting it the colour of the pixels
+// it sits against hides it instead. That is the TOP stop of --window, not the
+// bottom one. COLORREF is 0x00BBGGRR, so #212328 becomes 0x00282321.
+const TOP_EDGE: u32 = 0x0028_2321;
 
 pub fn remove_system_border(window: &WebviewWindow) {
     use windows::Win32::Graphics::Dwm::{
@@ -49,7 +50,7 @@ pub fn remove_system_border(window: &WebviewWindow) {
     let hwnd = HWND(raw.0 as _);
 
     unsafe {
-        let colour = APP_BACKGROUND;
+        let colour = TOP_EDGE;
         let _ = DwmSetWindowAttribute(
             hwnd,
             DWMWA_BORDER_COLOR,

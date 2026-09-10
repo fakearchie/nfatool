@@ -321,7 +321,8 @@ pub fn watch_sign_in(app: AppHandle, steamid: String) {
         let verdict = match steam::wait_for_sign_in(&steamid) {
             steam::SignInCheck::Confirmed => "ok",
             steam::SignInCheck::OtherAccount => "other",
-            steam::SignInCheck::NotSignedIn => "rejected",
+            steam::SignInCheck::Rejected => "rejected",
+            steam::SignInCheck::Unknown => "unknown",
         };
         let _ = app.emit("sign-in-result", (steamid, verdict));
     });
