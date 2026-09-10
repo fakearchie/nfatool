@@ -298,8 +298,8 @@ body {
   aspect-ratio: 1;
   width: 100%;
   background-color: #1c1c21;
-  border: 2px solid #23262e;
-  box-shadow: 0 4px 12px 3px rgba(0, 0, 0, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 3px 10px 1px rgba(0, 0, 0, 0.38);
 }
 
 .user.existing .icon > * {

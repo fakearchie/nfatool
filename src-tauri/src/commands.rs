@@ -309,3 +309,18 @@ pub fn vault_disable(password: String) -> Result<(), String> {
 pub fn vault_change(old: String, new: String) -> Result<String, String> {
     vault::change(&old, &new)
 }
+
+/// Waits for Steam to actually finish signing in, and reports what happened.
+///
+/// Writing the login files always "succeeds"; whether Steam accepts the code is
+/// only knowable afterwards. A revoked code leaves Steam sitting on its own login
+/// window, which looks identical to a slow start until this says otherwise.
+#[tauri::command]
+pub fn verify_sign_in(steamid: String) -> String {
+    match steam::wait_for_sign_in(&steamid, 45) {
+        steam::SignInCheck::Confirmed => "ok",
+        steam::SignInCheck::OtherAccount => "other",
+        steam::SignInCheck::NotSignedIn => "rejected",
+    }
+    .to_string()
+}

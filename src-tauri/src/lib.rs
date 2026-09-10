@@ -48,6 +48,7 @@ pub fn run() {
             commands::open_url,
             commands::get_log,
             commands::clear_log,
+            commands::verify_sign_in,
             commands::vault_status,
             commands::vault_unlock,
             commands::vault_lock,

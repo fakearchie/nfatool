@@ -633,11 +633,13 @@ function askRemoveSelected() {
 
 const signingAvatar = el("signingAvatar");
 const signingName = el("signingName");
+const signingText = el("signingText");
 
 async function signIn(steamid) {
   const index = accounts.findIndex((a) => a.steamid === steamid);
   const acc = accounts[index];
   const view = acc ? displayAccount(acc, index) : null;
+  const name = view ? view.display_name : "this account";
 
   if (view) {
     signingAvatar.innerHTML = iconInner(view);
@@ -646,6 +648,7 @@ async function signIn(steamid) {
     signingAvatar.textContent = "";
     signingName.textContent = "";
   }
+  signingText.textContent = "Signing in";
   showView("signing");
 
   const settled = invoke("sign_in", { steamid });
@@ -653,14 +656,49 @@ async function signIn(steamid) {
 
   try {
     await Promise.all([settled, minimumDwell]);
-    await refresh();
-    showView("picker");
   } catch (e) {
     await minimumDwell;
     await refresh();
     showView("picker");
-    toast(formatError(e), "err");
+    return toast(formatError(e), "err");
   }
+
+  await refresh();
+  signingText.textContent = "Waiting for Steam";
+
+  // Writing the files always succeeds; only Steam can say whether it accepted the
+  // code. A revoked one leaves Steam sitting on its own login window.
+  let verdict = "ok";
+  try {
+    verdict = await invoke("verify_sign_in", { steamid });
+  } catch {
+    verdict = "ok";
+  }
+
+  // The user navigated away while we waited; their choice wins.
+  if (currentView !== "signing") return;
+  showView("picker");
+
+  if (verdict === "rejected") offerRemoval(steamid, name);
+  else if (verdict === "other") toast("Steam signed in as a different account.", "err");
+}
+
+function offerRemoval(steamid, name) {
+  openConfirm(
+    "Login code no longer works",
+    `Steam wouldn't accept the saved code for ${name}, so it is asking you to sign in ` +
+      `manually instead. That usually means the code was revoked — changing the ` +
+      `password or signing out everywhere does it. Remove this account?`,
+    "Remove",
+    async () => {
+      try {
+        await invoke("remove_account", { steamid });
+        await refresh();
+      } catch (e) {
+        toast(formatError(e), "err");
+      }
+    }
+  );
 }
 
 const importInput = el("importInput");

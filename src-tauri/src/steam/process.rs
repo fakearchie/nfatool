@@ -24,11 +24,13 @@ pub(crate) fn stop_steam() -> Result<(), String> {
     kill_steam_by_pid();
     kill_steam_by_name();
     if wait_until_gone() {
+        clear_active_user();
         return Ok(());
     }
 
     kill_steam_elevated();
     if wait_until_gone() {
+        clear_active_user();
         return Ok(());
     }
 
@@ -156,4 +158,26 @@ pub(crate) fn clear_autologin_if_matches(account_name: &str) {
 
 fn reg_error(e: std::io::Error) -> String {
     format!("{:08X}", e.raw_os_error().unwrap_or(0) as u32)
+}
+
+// Steam writes the signed-in account's SteamID3 here, and 0 while nobody is
+// signed in. It is the only local signal that says whether a login code was
+// actually accepted, rather than whether we managed to write the files.
+pub(crate) fn active_user() -> u32 {
+    RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+        .open_subkey(r"SOFTWARE\Valve\Steam\ActiveProcess")
+        .and_then(|k| k.get_value::<u32, _>("ActiveUser"))
+        .unwrap_or(0)
+}
+
+// Force-killing Steam leaves ActiveUser holding whoever was signed in, which would
+// make the next sign-in look successful before it happened. Zero it so the check
+// starts from a known state.
+fn clear_active_user() {
+    if let Ok(key) = RegKey::predef(winreg::enums::HKEY_CURRENT_USER).open_subkey_with_flags(
+        r"SOFTWARE\Valve\Steam\ActiveProcess",
+        winreg::enums::KEY_SET_VALUE,
+    ) {
+        let _ = key.set_value("ActiveUser", &0u32);
+    }
 }

@@ -318,3 +318,34 @@ pub fn all_tokens_plaintext() -> Result<Vec<(String, String, String, String)>, S
 pub fn rewrite_tokens(records: &[(String, String, String, String)]) -> Result<(), String> {
     tokens::rewrite_all(records)
 }
+
+pub enum SignInCheck {
+    Confirmed,
+    NotSignedIn,
+    OtherAccount,
+}
+
+pub fn wait_for_sign_in(steamid: &str, seconds: u64) -> SignInCheck {
+    let Ok(expected) = paths::steamid64_to_steamid3(steamid).and_then(|s| {
+        s.parse::<u32>().map_err(|_| "bad steamid3".to_string())
+    }) else {
+        return SignInCheck::Confirmed;
+    };
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(seconds);
+    let mut seen_other = 0u32;
+    while std::time::Instant::now() < deadline {
+        match process::active_user() {
+            0 => {}
+            id if id == expected => return SignInCheck::Confirmed,
+            other => seen_other = other,
+        }
+        std::thread::sleep(Duration::from_millis(750));
+    }
+
+    if seen_other != 0 {
+        SignInCheck::OtherAccount
+    } else {
+        SignInCheck::NotSignedIn
+    }
+}
