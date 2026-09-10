@@ -35,6 +35,7 @@ zeroize = "1"
 version = "0.56"
 features = [
     "Win32_Foundation",
+    "Win32_Graphics_Dwm",
     "Win32_Security_Cryptography",
     "Win32_System_Console",
     "Win32_System_Registry",

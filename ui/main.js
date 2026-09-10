@@ -635,11 +635,12 @@ const signingAvatar = el("signingAvatar");
 const signingName = el("signingName");
 const signingText = el("signingText");
 
+let awaitingSignIn = null;
+
 async function signIn(steamid) {
   const index = accounts.findIndex((a) => a.steamid === steamid);
   const acc = accounts[index];
   const view = acc ? displayAccount(acc, index) : null;
-  const name = view ? view.display_name : "this account";
 
   if (view) {
     signingAvatar.innerHTML = iconInner(view);
@@ -649,6 +650,7 @@ async function signIn(steamid) {
     signingName.textContent = "";
   }
   signingText.textContent = "Signing in";
+  el("signingSkip").classList.add("hidden");
   showView("signing");
 
   const settled = invoke("sign_in", { steamid });
@@ -664,24 +666,34 @@ async function signIn(steamid) {
   }
 
   await refresh();
+
+  // The watcher runs on its own thread and answers with an event, so the window
+  // stays responsive while Steam starts.
+  awaitingSignIn = { steamid, name: view ? view.display_name : "this account" };
   signingText.textContent = "Waiting for Steam";
+  el("signingSkip").classList.remove("hidden");
+  invoke("watch_sign_in", { steamid }).catch(() => finishSignIn(steamid, "ok"));
+}
 
-  // Writing the files always succeeds; only Steam can say whether it accepted the
-  // code. A revoked one leaves Steam sitting on its own login window.
-  let verdict = "ok";
-  try {
-    verdict = await invoke("verify_sign_in", { steamid });
-  } catch {
-    verdict = "ok";
-  }
-
-  // The user navigated away while we waited; their choice wins.
+function finishSignIn(steamid, verdict) {
+  if (!awaitingSignIn || awaitingSignIn.steamid !== steamid) return;
+  const { name } = awaitingSignIn;
+  awaitingSignIn = null;
   if (currentView !== "signing") return;
   showView("picker");
-
   if (verdict === "rejected") offerRemoval(steamid, name);
   else if (verdict === "other") toast("Steam signed in as a different account.", "err");
 }
+
+el("signingSkip").addEventListener("click", () => {
+  awaitingSignIn = null;
+  showView("picker");
+});
+
+listen("sign-in-result", (e) => {
+  const [steamid, verdict] = e.payload || [];
+  finishSignIn(steamid, verdict);
+});
 
 function offerRemoval(steamid, name) {
   openConfirm(

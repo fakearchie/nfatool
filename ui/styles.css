@@ -92,16 +92,16 @@ body {
   pointer-events: none;
   opacity: 0.72;
   -webkit-mask-image: radial-gradient(
-    75% 83% at 50% 18%,
+    130% 140% at 50% 26%,
     #000 0%,
-    rgba(0, 0, 0, 0.6) 76%,
-    rgba(0, 0, 0, 0) 100%
+    rgba(0, 0, 0, 0.82) 62%,
+    rgba(0, 0, 0, 0.55) 100%
   );
   mask-image: radial-gradient(
-    75% 83% at 50% 18%,
+    130% 140% at 50% 26%,
     #000 0%,
-    rgba(0, 0, 0, 0.6) 76%,
-    rgba(0, 0, 0, 0) 100%
+    rgba(0, 0, 0, 0.82) 62%,
+    rgba(0, 0, 0, 0.55) 100%
   );
 }
 

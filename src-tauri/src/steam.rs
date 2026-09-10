@@ -325,22 +325,41 @@ pub enum SignInCheck {
     OtherAccount,
 }
 
-pub fn wait_for_sign_in(steamid: &str, seconds: u64) -> SignInCheck {
-    let Ok(expected) = paths::steamid64_to_steamid3(steamid).and_then(|s| {
-        s.parse::<u32>().map_err(|_| "bad steamid3".to_string())
-    }) else {
+/// Watches for Steam to sign the account in.
+///
+/// Gives up early rather than running the clock out: once Steam has been up for a
+/// while with nobody signed in, it is sitting on its own login window, and waiting
+/// longer only makes the app look stuck.
+pub fn wait_for_sign_in(steamid: &str) -> SignInCheck {
+    const MAX_WAIT: Duration = Duration::from_secs(40);
+    const SETTLE: Duration = Duration::from_secs(12);
+
+    let Ok(expected) = paths::steamid64_to_steamid3(steamid)
+        .and_then(|s| s.parse::<u32>().map_err(|_| "bad steamid3".to_string()))
+    else {
         return SignInCheck::Confirmed;
     };
 
-    let deadline = std::time::Instant::now() + Duration::from_secs(seconds);
+    let start = std::time::Instant::now();
+    let mut steam_up_since: Option<std::time::Instant> = None;
     let mut seen_other = 0u32;
-    while std::time::Instant::now() < deadline {
+
+    while start.elapsed() < MAX_WAIT {
         match process::active_user() {
-            0 => {}
+            0 => {
+                if process::steam_is_running() {
+                    let up = *steam_up_since.get_or_insert_with(std::time::Instant::now);
+                    if up.elapsed() >= SETTLE {
+                        return SignInCheck::NotSignedIn;
+                    }
+                } else {
+                    steam_up_since = None;
+                }
+            }
             id if id == expected => return SignInCheck::Confirmed,
             other => seen_other = other,
         }
-        std::thread::sleep(Duration::from_millis(750));
+        std::thread::sleep(Duration::from_millis(500));
     }
 
     if seen_other != 0 {

@@ -60,7 +60,7 @@ Start-Process -FilePath 'taskkill' -ArgumentList '/F','/IM',$p,'/T' \
 }
 
 // Never parse taskkill/tasklist prose: it is localised (German Windows broke this).
-fn steam_is_running() -> bool {
+pub(crate) fn steam_is_running() -> bool {
     for process in ["steam.exe", "steamwebhelper.exe"] {
         let running = silent_command("tasklist")
             .args(["/FI", &format!("IMAGENAME eq {process}"), "/NH"])

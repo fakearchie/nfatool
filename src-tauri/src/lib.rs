@@ -17,6 +17,7 @@ pub fn run() {
         .setup(|app| {
             tray::setup(app.handle())?;
             capture::apply_to_main(app.handle(), settings::load_settings().hide_from_capture);
+            capture::strip_border_on_main(app.handle());
             window_state::restore(app.handle());
             Ok(())
         })
@@ -48,7 +49,7 @@ pub fn run() {
             commands::open_url,
             commands::get_log,
             commands::clear_log,
-            commands::verify_sign_in,
+            commands::watch_sign_in,
             commands::vault_status,
             commands::vault_unlock,
             commands::vault_lock,

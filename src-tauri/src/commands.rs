@@ -310,17 +310,19 @@ pub fn vault_change(old: String, new: String) -> Result<String, String> {
     vault::change(&old, &new)
 }
 
-/// Waits for Steam to actually finish signing in, and reports what happened.
+/// Starts watching for Steam to finish signing in, and returns immediately.
 ///
-/// Writing the login files always "succeeds"; whether Steam accepts the code is
-/// only knowable afterwards. A revoked code leaves Steam sitting on its own login
-/// window, which looks identical to a slow start until this says otherwise.
+/// This used to block the command thread for 45s, which pinned the window at
+/// "Not Responding". The wait now lives on its own thread and reports back with a
+/// `sign-in-result` event.
 #[tauri::command]
-pub fn verify_sign_in(steamid: String) -> String {
-    match steam::wait_for_sign_in(&steamid, 45) {
-        steam::SignInCheck::Confirmed => "ok",
-        steam::SignInCheck::OtherAccount => "other",
-        steam::SignInCheck::NotSignedIn => "rejected",
-    }
-    .to_string()
+pub fn watch_sign_in(app: AppHandle, steamid: String) {
+    std::thread::spawn(move || {
+        let verdict = match steam::wait_for_sign_in(&steamid) {
+            steam::SignInCheck::Confirmed => "ok",
+            steam::SignInCheck::OtherAccount => "other",
+            steam::SignInCheck::NotSignedIn => "rejected",
+        };
+        let _ = app.emit("sign-in-result", (steamid, verdict));
+    });
 }
