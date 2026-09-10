@@ -375,8 +375,12 @@ fn log_since_mark() -> String {
     let Ok(mut file) = fs::File::open(path) else {
         return String::new();
     };
-    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
-    let start = read_start(len, LOG_MARK.load(Ordering::Relaxed));
+    // Not unwrap_or(0): a metadata error would read as "rotated, all of it is new"
+    // and hand the whole history back, which is the bug read_start exists to stop.
+    let Ok(meta) = file.metadata() else {
+        return String::new();
+    };
+    let start = read_start(meta.len(), LOG_MARK.load(Ordering::Relaxed));
     if file.seek(SeekFrom::Start(start)).is_err() {
         return String::new();
     }
@@ -407,10 +411,11 @@ fn verdict_in_log(text: &str, expected: u32) -> Option<SignInCheck> {
             if line.contains("'OK'") {
                 return Some(SignInCheck::Confirmed);
             }
-            // 'Access Denied' is the refusal for a revoked or expired login code.
-            // Other results ('Try another CM', 'Failure') are transient and Steam
-            // retries them, so they are deliberately not treated as an answer.
-            if line.contains("'Access Denied'") {
+            // The two terminal refusals of a saved code, both seen in real logs and
+            // both followed by Steam's own "Clearing in-memory token" line. The rest
+            // ('Try another CM', 'Service Unavailable', 'Failure') are transient and
+            // Steam retries them, so they are deliberately not an answer.
+            if line.contains("'Access Denied'") || line.contains("'Invalid Password'") {
                 return Some(SignInCheck::Rejected);
             }
             continue;
@@ -439,7 +444,7 @@ pub fn wait_for_sign_in(steamid: &str) -> SignInCheck {
     let Ok(expected) = paths::steamid64_to_steamid3(steamid)
         .and_then(|s| s.parse::<u32>().map_err(|_| "bad steamid3".to_string()))
     else {
-        return SignInCheck::Confirmed;
+        return SignInCheck::Unknown;
     };
 
     let generation = ATTEMPT.load(Ordering::Relaxed);
@@ -450,6 +455,7 @@ pub fn wait_for_sign_in(steamid: &str) -> SignInCheck {
         return SignInCheck::Unknown;
     }
     let start = std::time::Instant::now();
+    let mut fallback = None;
 
     while start.elapsed() < MAX_WAIT {
         // A newer sign-in has taken over the log mark, so anything read now describes
@@ -460,8 +466,13 @@ pub fn wait_for_sign_in(steamid: &str) -> SignInCheck {
 
         // The log first. It says which account each result belongs to, so a refusal
         // of ours is not hidden by Steam signing in as somebody else straight after.
-        if let Some(verdict) = verdict_in_log(&log_since_mark(), expected) {
-            return verdict;
+        match verdict_in_log(&log_since_mark(), expected) {
+            // Somebody else signing in is only ever a provisional answer. Ours may
+            // not be written yet, and returning here would end the wait before it
+            // could arrive, so hold it and keep watching for our own result.
+            Some(SignInCheck::OtherAccount) => fallback = Some(SignInCheck::OtherAccount),
+            Some(verdict) => return verdict,
+            None => {}
         }
 
         // The registry only ever confirms. A different account here is not evidence
@@ -475,9 +486,10 @@ pub fn wait_for_sign_in(steamid: &str) -> SignInCheck {
         std::thread::sleep(Duration::from_millis(500));
     }
 
-    // Steam never answered. Saying nothing is right here: an unanswered logon is not
+    // Steam never answered about our account. If it signed in as somebody else in the
+    // meantime, say that; otherwise say nothing, because an unanswered logon is not
     // evidence that the code is dead.
-    SignInCheck::Unknown
+    fallback.unwrap_or(SignInCheck::Unknown)
 }
 
 #[cfg(test)]
@@ -591,6 +603,22 @@ mod sign_in_log_tests {
         );
         assert_eq!(verdict(denied_first, 442115668), Some("rejected"));
         assert_eq!(verdict(fallback_first, 442115668), Some("rejected"));
+    }
+
+    /// Both terminal refusals appear in the user's real logs, and Steam follows each
+    /// with its own "Clearing in-memory token" line. Only matching one of them left a
+    /// dead code reported as nothing at all.
+    #[test]
+    fn invalid_password_is_a_refusal_too() {
+        let text = "[U:1:1897263079] RecvMsgClientLogOnResponse() : [I:0:0] 'Invalid Password'";
+        assert_eq!(verdict(text, 1897263079), Some("rejected"));
+    }
+
+    /// 'Service Unavailable' is retried by Steam, so it must not read as a dead code.
+    #[test]
+    fn service_unavailable_is_not_a_refusal() {
+        let text = "[U:1:1897263079] RecvMsgClientLogOnResponse() : [I:0:0] 'Service Unavailable'";
+        assert_eq!(verdict(text, 1897263079), None);
     }
 
     /// A short account id must not match inside a longer one.

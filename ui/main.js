@@ -243,9 +243,22 @@ function render() {
   const hasAccounts = accounts.length > 0;
   pickerHeadline.textContent = hasAccounts ? "Who's playing?" : "Add your first account";
 
+  // Most recently tried first, so the account you just signed into leads the row.
+  // last_used is stamped on the attempt, not on Steam accepting it, which is what
+  // you want here: the one you just reached for is the one you reach for again.
+  // Steam's own MostRecent flag only breaks ties between accounts never tried here,
+  // and the original index keeps the rest in a stable order.
   const ordered = accounts
     .map((acc, index) => ({ acc, index }))
-    .sort((a, b) => Number(b.acc.most_recent) - Number(a.acc.most_recent));
+    .sort((a, b) => {
+      const usedA = metaFor(a.acc.steamid).last_used || 0;
+      const usedB = metaFor(b.acc.steamid).last_used || 0;
+      if (usedA !== usedB) return usedB - usedA;
+      const recentA = Number(a.acc.most_recent);
+      const recentB = Number(b.acc.most_recent);
+      if (recentA !== recentB) return recentB - recentA;
+      return a.index - b.index;
+    });
 
   const query = searchQuery.trim().toLowerCase();
   const matching = ordered.filter(({ acc, index }) => {
