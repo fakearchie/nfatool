@@ -211,6 +211,14 @@
               </span>
             </label>
 
+            <label class="check-row">
+              <input type="checkbox" class="check" data-setting="check_updates_on_start" />
+              <span class="check-text">
+                <span class="check-label">Check for updates on start</span>
+                <span class="check-desc">Asks GitHub once per start whether a newer release exists, and offers to install it. Turn it off and the Check for updates button in About still works.</span>
+              </span>
+            </label>
+
             <div class="pane-title pane-title-sub">Password</div>
             <div class="chip-row">
               <span class="chip-label" id="vaultState">Off</span>
@@ -221,7 +229,7 @@
             </div>
             <span class="check-desc">
               Encrypts your saved login codes with a key derived from the password, and asks for it
-              on every start. Without the password the codes cannot be read &mdash; not by this app,
+              on every start. Without the password the codes cannot be read, not by this app
               and not by anything else on the PC. You get a recovery code when you set it; keep it
               somewhere safe, because losing both means losing the codes.
             </span>

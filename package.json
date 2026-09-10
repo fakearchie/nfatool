@@ -1,8 +1,8 @@
 {
   "name": "nfa-pub-tool",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
-  "description": "nfa.pub tool — Steam cache login desktop app",
+  "description": "nfa.pub tool, a Steam cache login desktop app",
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",

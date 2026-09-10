@@ -35,6 +35,7 @@ let settings = {
   fetch_missing_avatars: true,
   hide_from_capture: false,
   auto_remove_rejected: false,
+  check_updates_on_start: true,
   steam_api_key: "",
   cs2_launch_options: "",
   cs2_config_source: "",
@@ -1018,6 +1019,29 @@ const versionText = el("versionText");
 const updateBtn = el("updateBtn");
 const logBox = el("logBox");
 
+function offerUpdate(info) {
+  openConfirm(
+    `Version ${info.latest} is available`,
+    info.notes || "No release notes.",
+    "Install now",
+    async () => {
+      toast("Downloading the update. The app will close to install it.", "ok");
+      try {
+        const installed = await invoke("install_update");
+        // The installer normally replaces the app and this never runs. Reaching here
+        // means the updater found nothing to install, which is worth saying rather
+        // than leaving the toast above as the last word.
+        if (!installed) toast("There was no update to install after all.", "err");
+      } catch (e) {
+        // Never leave the user stuck on a failed install: the download page still works.
+        toast(formatError(e), "err");
+        invoke("open_url", { url: info.url }).catch(() => {});
+      }
+    },
+    "primary"
+  );
+}
+
 async function checkForUpdate() {
   updateBtn.disabled = true;
   updateBtn.textContent = "Checking…";
@@ -1027,18 +1051,24 @@ async function checkForUpdate() {
       toast(`You're on the latest version (${info.current}).`, "ok");
       return;
     }
-    openConfirm(
-      `Version ${info.latest} is available`,
-      info.notes || "No release notes.",
-      "Open download page",
-      () => invoke("open_url", { url: info.url }).catch((e) => toast(formatError(e), "err")),
-      "primary"
-    );
+    offerUpdate(info);
   } catch (e) {
     toast(formatError(e), "err");
   } finally {
     updateBtn.disabled = false;
     updateBtn.textContent = "Check for updates";
+  }
+}
+
+// Quiet on purpose: this runs without being asked, so it speaks up only when there
+// is something to install. A failed check is not the user's problem to hear about.
+async function checkForUpdateQuietly() {
+  if (!settings.check_updates_on_start) return;
+  try {
+    const info = await invoke("check_for_update");
+    if (info.available) offerUpdate(info);
+  } catch (e) {
+    console.warn("update check failed:", e);
   }
 }
 
@@ -1472,6 +1502,9 @@ async function startApp() {
   await loadSettings();
   await refresh();
   showView("picker");
+  // After the picker is up, never before: an update prompt is not what you want to
+  // meet on a cold start, and the check must not delay the accounts appearing.
+  checkForUpdateQuietly();
 }
 
 async function boot() {

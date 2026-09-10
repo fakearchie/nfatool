@@ -23,6 +23,8 @@ pub struct AppSettings {
     pub hide_from_capture: bool,
     #[serde(default)]
     pub auto_remove_rejected: bool,
+    #[serde(default = "default_true")]
+    pub check_updates_on_start: bool,
 
     #[serde(default)]
     pub cs2_launch_options: String,
@@ -52,6 +54,7 @@ impl Default for AppSettings {
             steam_api_key: String::new(),
             hide_from_capture: false,
             auto_remove_rejected: false,
+            check_updates_on_start: true,
             cs2_launch_options: String::new(),
             cs2_config_source: String::new(),
             suppress_workshop_downloads: false,

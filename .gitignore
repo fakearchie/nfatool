@@ -23,6 +23,9 @@ desktop.ini
 .env
 .env.*
 
+# Release staging, built locally or by CI
+dist/
+
 # Binaries / installers (built by CI)
 *.exe
 *.pdb
@@ -41,7 +44,7 @@ out.txt
 # Tauri generated (regenerated on build)
 src-tauri/gen/
 
-# Internal roadmap — keep private until ready to release
+# Internal roadmap, keep private until ready to release
 ROADMAP.md
 
 # Throwaway UI harness: a copy of ui/ plus a mock Tauri bridge, used to drive the

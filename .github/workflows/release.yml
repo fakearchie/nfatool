@@ -108,19 +108,58 @@ jobs:
           }
 
       - name: Build app (Tauri)
-        run: npm run build
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY is not set. Installed copies verify"
+            echo "the signature before applying an update, so an unsigned build"
+            echo "would publish a release nobody can update to."
+            exit 1
+          fi
+          npm run build
 
-      - name: Package installer
+      - name: Package installer and update manifest
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $setup = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
-          if (-not $setup) { Write-Error "No NSIS installer found in src-tauri/target/release/bundle/nsis/"; exit 1 }
+
+          $bundle = "src-tauri/target/release/bundle/nsis"
+          $setup = Get-ChildItem "$bundle/*-setup.exe" | Select-Object -First 1
+          if (-not $setup) { Write-Error "No NSIS installer found in $bundle"; exit 1 }
+
+          # Written by createUpdaterArtifacts. Its absence means the build was not
+          # signed, and shipping that would strand every installed copy.
+          $sig = Get-ChildItem "$bundle/*-setup.exe.sig" | Select-Object -First 1
+          if (-not $sig) { Write-Error "No .sig beside the installer. The signing key did not reach the build."; exit 1 }
+
           $name = "nfa-pub-tool-${{ steps.meta.outputs.version }}-setup.exe"
           Copy-Item $setup.FullName "dist/$name"
+          Copy-Item $sig.FullName "dist/$name.sig"
+
+          # The signature covers the bytes, not the filename, so renaming is safe.
+          $manifest = [ordered]@{
+            version = "${{ steps.meta.outputs.short }}"
+            notes = "See https://github.com/${{ github.repository }}/releases/tag/${{ steps.meta.outputs.tag_name }}"
+            pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            platforms = [ordered]@{
+              "windows-x86_64" = [ordered]@{
+                signature = (Get-Content $sig.FullName -Raw).Trim()
+                url = "https://github.com/${{ github.repository }}/releases/download/${{ steps.meta.outputs.tag_name }}/$name"
+              }
+            }
+          }
+          [System.IO.File]::WriteAllText(
+            "dist/latest.json",
+            ($manifest | ConvertTo-Json -Depth 6),
+            [System.Text.UTF8Encoding]::new($false)
+          )
+
           "asset_name=$name" >> $env:GITHUB_ENV
           "asset_path=dist/$name" >> $env:GITHUB_ENV
-          Write-Host "Packaged $($setup.FullName) -> dist/$name"
+          Write-Host "Packaged $name, its signature, and latest.json"
 
       - name: Create GitHub Release
         shell: bash
@@ -132,15 +171,15 @@ jobs:
           set -euo pipefail
           TARGET="${{ github.sha }}"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG exists — uploading asset"
-            gh release upload "$TAG" "$ASSET" --clobber
+            echo "Release $TAG exists, uploading assets"
+            gh release upload "$TAG" "$ASSET" "$ASSET.sig" dist/latest.json --clobber
           else
             echo "Creating release $TAG at $TARGET"
             gh release create "$TAG" \
               --target "$TARGET" \
               --title "$TAG" \
               --generate-notes \
-              "$ASSET"
+              "$ASSET" "$ASSET.sig" dist/latest.json
           fi
           gh release view "$TAG"
 

@@ -192,6 +192,36 @@ pub fn check_for_update() -> Result<update::UpdateInfo, String> {
     update::check(env!("CARGO_PKG_VERSION"))
 }
 
+/// Downloads the signed installer and runs it, which closes the app.
+///
+/// The check runs again here rather than trusting what the window was told: the
+/// plugin verifies the signature against the public key built into the binary, so
+/// the version it agrees to install is the only one worth acting on. Returns false
+/// when there is nothing to install, which the window reports rather than hanging.
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> Result<bool, String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let updater = app
+        .updater()
+        .map_err(|e| format!("The updater is not available: {e}"))?;
+
+    let Some(update) = updater
+        .check()
+        .await
+        .map_err(|e| format!("Could not check for an update: {e}"))?
+    else {
+        return Ok(false);
+    };
+
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| format!("The update could not be installed: {e}"))?;
+
+    Ok(true)
+}
+
 #[tauri::command]
 pub fn app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()

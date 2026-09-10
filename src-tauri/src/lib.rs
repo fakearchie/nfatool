@@ -14,6 +14,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             tray::setup(app.handle())?;
             capture::apply_to_main(app.handle(), settings::load_settings().hide_from_capture);
@@ -45,6 +46,7 @@ pub fn run() {
             commands::open_profile,
             commands::prune_expired,
             commands::check_for_update,
+            commands::install_update,
             commands::app_version,
             commands::open_url,
             commands::get_log,
