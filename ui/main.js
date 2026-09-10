@@ -34,6 +34,7 @@ let settings = {
   mute_notifications_on_login: false,
   fetch_missing_avatars: true,
   hide_from_capture: false,
+  auto_remove_rejected: false,
   steam_api_key: "",
   cs2_launch_options: "",
   cs2_config_source: "",
@@ -649,6 +650,7 @@ const signingName = el("signingName");
 const signingText = el("signingText");
 
 let awaitingSignIn = null;
+let signInSeq = 0;
 
 async function signIn(steamid) {
   const index = accounts.findIndex((a) => a.steamid === steamid);
@@ -682,14 +684,31 @@ async function signIn(steamid) {
 
   // The watcher runs on its own thread and answers with an event, so the window
   // stays responsive while Steam starts.
-  awaitingSignIn = { steamid, name: view ? view.display_name : "this account" };
+  const attempt = ++signInSeq;
+  awaitingSignIn = { steamid, attempt, name: view ? view.display_name : "this account" };
   signingText.textContent = "Waiting for Steam";
   el("signingSkip").classList.remove("hidden");
-  invoke("watch_sign_in", { steamid }).catch(() => finishSignIn(steamid, "ok"));
+  invoke("watch_sign_in", { steamid, attempt }).catch(() => finishSignIn(steamid, "ok", attempt));
 }
 
-function finishSignIn(steamid, verdict) {
-  if (!awaitingSignIn || awaitingSignIn.steamid !== steamid) return;
+function nameFor(steamid) {
+  const index = accounts.findIndex((a) => a.steamid === steamid);
+  return index < 0 ? "this account" : displayAccount(accounts[index], index).display_name;
+}
+
+function finishSignIn(steamid, verdict, attempt) {
+  // Match on the attempt, not the account. Skipping a wait leaves its watcher running
+  // for the rest of its 90 seconds, and signing into the same account again gave two
+  // watchers the window could not tell apart: the abandoned one's "unknown" cancelled
+  // the live attempt, and the real answer was dropped.
+  // Attempt 0 comes from the tray, where nothing on screen is waiting. There is no
+  // signing view to leave, but a refused code still deserves the same offer.
+  if (attempt === 0) {
+    if (verdict === "rejected") offerRemoval(steamid, nameFor(steamid));
+    else if (verdict === "other") toast("Steam signed in as a different account.", "err");
+    return;
+  }
+  if (!awaitingSignIn || awaitingSignIn.attempt !== attempt) return;
   const { name } = awaitingSignIn;
   awaitingSignIn = null;
   if (currentView !== "signing") return;
@@ -704,25 +723,38 @@ el("signingSkip").addEventListener("click", () => {
 });
 
 listen("sign-in-result", (e) => {
-  const [steamid, verdict] = e.payload || [];
-  finishSignIn(steamid, verdict);
+  const [steamid, verdict, attempt] = e.payload || [];
+  finishSignIn(steamid, verdict, attempt);
 });
 
+async function removeRejected(steamid) {
+  try {
+    await invoke("remove_account", { steamid });
+    await refresh();
+    return true;
+  } catch (e) {
+    toast(formatError(e), "err");
+    return false;
+  }
+}
+
 function offerRemoval(steamid, name) {
+  // Only ever reached when Steam itself said the code was refused, so acting on it
+  // without asking is the setting doing what it says rather than a guess.
+  if (settings.auto_remove_rejected) {
+    removeRejected(steamid).then((gone) => {
+      if (gone) toast(`Steam refused the code for ${name}, so it was removed.`, "err");
+    });
+    return;
+  }
+
   openConfirm(
     "Steam rejected this login code",
     `Steam refused the saved code for ${name} and is asking for a manual sign in. ` +
       `Codes stop working after a password change, or after signing out of all devices. ` +
       `Remove ${name}?`,
     "Remove",
-    async () => {
-      try {
-        await invoke("remove_account", { steamid });
-        await refresh();
-      } catch (e) {
-        toast(formatError(e), "err");
-      }
-    }
+    () => removeRejected(steamid)
   );
 }
 
@@ -1277,11 +1309,13 @@ document.addEventListener("keydown", (e) => {
 listen("accounts-changed", () => refresh());
 listen("settings-changed", () => loadSettings());
 listen("metadata-changed", () => loadMeta().then(render));
-listen("signed-in", async (e) => {
+listen("steam-starting", async (e) => {
   await refresh();
   const index = accounts.findIndex((a) => a.steamid === e.payload);
   if (index < 0) return;
-  toast(`Signed in as ${displayAccount(accounts[index], index).display_name}`, "ok");
+  // Not "Signed in": the files are written and Steam is starting, but Steam has not
+  // said yet whether it accepts the code. A watcher reports that separately.
+  toast(`Starting Steam as ${displayAccount(accounts[index], index).display_name}`, "ok");
 });
 listen("status", (e) => {
   refresh().then(() => toast(e.payload, "ok"));

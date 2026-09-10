@@ -316,7 +316,13 @@ pub fn vault_change(old: String, new: String) -> Result<String, String> {
 /// "Not Responding". The wait now lives on its own thread and reports back with a
 /// `sign-in-result` event.
 #[tauri::command]
-pub fn watch_sign_in(app: AppHandle, steamid: String) {
+pub fn watch_sign_in(app: AppHandle, steamid: String, attempt: u64) {
+    spawn_sign_in_watch(app, steamid, attempt);
+}
+
+/// Attempt 0 means nothing on screen is waiting for this answer, which is the tray's
+/// case: it signs in without the window ever entering the signing view.
+pub fn spawn_sign_in_watch(app: AppHandle, steamid: String, attempt: u64) {
     std::thread::spawn(move || {
         let verdict = match steam::wait_for_sign_in(&steamid) {
             steam::SignInCheck::Confirmed => "ok",
@@ -324,6 +330,8 @@ pub fn watch_sign_in(app: AppHandle, steamid: String) {
             steam::SignInCheck::Rejected => "rejected",
             steam::SignInCheck::Unknown => "unknown",
         };
-        let _ = app.emit("sign-in-result", (steamid, verdict));
+        // The attempt id goes back out so the window can tell this answer from one
+        // belonging to a sign-in it has already moved on from.
+        let _ = app.emit("sign-in-result", (steamid, verdict, attempt));
     });
 }

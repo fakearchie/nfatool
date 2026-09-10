@@ -21,6 +21,8 @@ pub struct AppSettings {
     pub steam_api_key: String,
     #[serde(default)]
     pub hide_from_capture: bool,
+    #[serde(default)]
+    pub auto_remove_rejected: bool,
 
     #[serde(default)]
     pub cs2_launch_options: String,
@@ -49,6 +51,7 @@ impl Default for AppSettings {
             fetch_missing_avatars: true,
             steam_api_key: String::new(),
             hide_from_capture: false,
+            auto_remove_rejected: false,
             cs2_launch_options: String::new(),
             cs2_config_source: String::new(),
             suppress_workshop_downloads: false,

@@ -979,6 +979,15 @@ body {
   border-top: 1px solid var(--divider);
 }
 
+/* A sub-heading draws its own rule, and the row above it draws one too unless it
+   happens to be the last child. Back to back they read as a double line. The
+   heading's rule is the one that survives, because it is also the only one when
+   what precedes it is a plain description with no border of its own. */
+.check-row:has(+ .pane-title-sub),
+.key-row:has(+ .pane-title-sub) {
+  border-bottom: none;
+}
+
 select.text-input {
   font-family: inherit;
   cursor: pointer;

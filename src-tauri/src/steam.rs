@@ -16,7 +16,7 @@ pub use import::{read_clipboard, token_expiry, write_clipboard};
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::Duration;
 
 use crate::settings::{load_settings, AppSettings};
@@ -179,7 +179,7 @@ pub fn handle_batch_import(content: &str) -> Result<String, String> {
     if let Some((username, steamid)) = last {
         let settings = load_settings();
         apply_active_account(&username, &steamid, steam_path, &settings)?;
-        relaunch_steam(&steam_path_string, &settings)?;
+        relaunch_steam(&steam_path_string, &steamid, &settings)?;
     }
 
     let mut msg = format!("Imported {imported} accounts.");
@@ -210,7 +210,7 @@ fn import_single_account(content: &str) -> Result<String, String> {
     tokens::save_record(&steamid, &username, &username, &jwt);
     let settings = load_settings();
     apply_active_account(&username, &steamid, steam_path, &settings)?;
-    relaunch_steam(&steam_path_string, &settings)?;
+    relaunch_steam(&steam_path_string, &steamid, &settings)?;
 
     Ok(format!("Imported {username}."))
 }
@@ -228,7 +228,7 @@ pub fn handle_login_account(account: &SteamAccount) -> Result<String, String> {
     }
 
     apply_active_account(&account.account_name, &account.steamid, steam_path, &settings)?;
-    relaunch_steam(&steam_path_string, &settings)?;
+    relaunch_steam(&steam_path_string, &account.steamid, &settings)?;
 
     Ok(format!(
         "Signed in as {}. Starting Steam.",
@@ -295,11 +295,11 @@ fn apply_active_account(
     process::write_autologin_user(username)
 }
 
-fn relaunch_steam(steam_path: &str, settings: &AppSettings) -> Result<(), String> {
+fn relaunch_steam(steam_path: &str, steamid: &str, settings: &AppSettings) -> Result<(), String> {
     // The log already holds every past logon, including old refusals, so record how
     // long it is before Steam can append to it. Anything past this mark is ours.
     LOG_MARK.store(connection_log_len(), Ordering::Relaxed);
-    ATTEMPT.fetch_add(1, Ordering::Relaxed);
+    MARK_TARGET.store(steamid3(steamid).unwrap_or(0), Ordering::Relaxed);
     std::thread::sleep(Duration::from_millis(400));
     process::launch_steam(steam_path, settings)?;
     Ok(())
@@ -325,15 +325,26 @@ pub fn rewrite_tokens(records: &[(String, String, String, String)]) -> Result<()
 }
 
 static LOG_MARK: AtomicU64 = AtomicU64::new(0);
-// Bumped on every launch. A watcher whose generation is stale belongs to a sign-in
-// the user has already replaced, and its answer is about the wrong account.
-static ATTEMPT: AtomicU64 = AtomicU64::new(0);
+// The account the current mark was taken for, as a SteamID3, or 0 before any launch.
+// A counter cannot do this job: the watcher thread starts well after its own launch
+// (the command returns, the UI refreshes, only then does it spawn), so it would
+// sample a generation belonging to a launch that had already replaced its own and
+// never notice it was reading the wrong window. Comparing the account is true
+// whenever the watcher happens to start, and lets two watchers for the same account
+// both keep going, which is what a tray sign-in over a window sign-in produces.
+static MARK_TARGET: AtomicU32 = AtomicU32::new(0);
 
 pub enum SignInCheck {
     Confirmed,
     Rejected,
     OtherAccount,
     Unknown,
+}
+
+fn steamid3(steamid: &str) -> Option<u32> {
+    paths::steamid64_to_steamid3(steamid)
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
 }
 
 fn connection_log_path() -> Option<PathBuf> {
@@ -441,26 +452,18 @@ fn verdict_in_log(text: &str, expected: u32) -> Option<SignInCheck> {
 pub fn wait_for_sign_in(steamid: &str) -> SignInCheck {
     const MAX_WAIT: Duration = Duration::from_secs(90);
 
-    let Ok(expected) = paths::steamid64_to_steamid3(steamid)
-        .and_then(|s| s.parse::<u32>().map_err(|_| "bad steamid3".to_string()))
-    else {
+    let Some(expected) = steamid3(steamid) else {
         return SignInCheck::Unknown;
     };
 
-    let generation = ATTEMPT.load(Ordering::Relaxed);
-    if generation == 0 {
-        // Nothing has been launched, so there is no mark and the whole log would read
-        // as new. That is the shape of the bug read_start exists to prevent, so refuse
-        // to answer rather than judge an account by somebody else's old logon.
-        return SignInCheck::Unknown;
-    }
     let start = std::time::Instant::now();
     let mut fallback = None;
 
     while start.elapsed() < MAX_WAIT {
-        // A newer sign-in has taken over the log mark, so anything read now describes
-        // that attempt rather than this one.
-        if ATTEMPT.load(Ordering::Relaxed) != generation {
+        // The mark belongs to whoever launched last. If that is not our account then
+        // the log window is somebody else's, and 0 means nothing has been launched at
+        // all, so the whole history would read as new. Neither is answerable.
+        if MARK_TARGET.load(Ordering::Relaxed) != expected {
             return SignInCheck::Unknown;
         }
 

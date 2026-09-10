@@ -165,7 +165,15 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
                             crate::metadata::touch_last_used(&account.steamid);
                             let _ = rebuild(app);
                             let _ = app.emit("accounts-changed", ());
-                            let _ = app.emit("signed-in", account.steamid.clone());
+                            let _ = app.emit("steam-starting", account.steamid.clone());
+                            // Writing the files always succeeds, so this path used to
+                            // report a sign-in that Steam might still refuse. Watch for
+                            // the real verdict like the window does.
+                            crate::commands::spawn_sign_in_watch(
+                                app.clone(),
+                                account.steamid.clone(),
+                                0,
+                            );
                         }
                         Err(err) => {
                             let _ = app.emit("status-error", err);
