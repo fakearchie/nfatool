@@ -299,6 +299,7 @@ fn relaunch_steam(steam_path: &str, settings: &AppSettings) -> Result<(), String
     // The log already holds every past logon, including old refusals, so record how
     // long it is before Steam can append to it. Anything past this mark is ours.
     LOG_MARK.store(connection_log_len(), Ordering::Relaxed);
+    ATTEMPT.fetch_add(1, Ordering::Relaxed);
     std::thread::sleep(Duration::from_millis(400));
     process::launch_steam(steam_path, settings)?;
     Ok(())
@@ -324,6 +325,9 @@ pub fn rewrite_tokens(records: &[(String, String, String, String)]) -> Result<()
 }
 
 static LOG_MARK: AtomicU64 = AtomicU64::new(0);
+// Bumped on every launch. A watcher whose generation is stale belongs to a sign-in
+// the user has already replaced, and its answer is about the wrong account.
+static ATTEMPT: AtomicU64 = AtomicU64::new(0);
 
 pub enum SignInCheck {
     Confirmed,
@@ -346,10 +350,22 @@ fn connection_log_len() -> u64 {
         .unwrap_or(0)
 }
 
-/// Reads what Steam wrote to its connection log since we launched it.
+/// Where to start reading the connection log.
 ///
-/// Steam rotates the log, so a file shorter than the mark means it started over and
-/// everything in it is new.
+/// A file shorter than the mark means Steam rotated it and everything is new. A file
+/// exactly as long as the mark means nothing has been written yet, which must read as
+/// empty: skipping the seek there instead returned the whole history, and the first
+/// old success line in it for any other account was reported as "signed in as a
+/// different account" on every single sign-in.
+fn read_start(len: u64, mark: u64) -> u64 {
+    if len < mark {
+        0
+    } else {
+        mark
+    }
+}
+
+/// Reads what Steam wrote to its connection log since we launched it.
 fn log_since_mark() -> String {
     use std::io::{Read, Seek, SeekFrom};
 
@@ -359,9 +375,9 @@ fn log_since_mark() -> String {
     let Ok(mut file) = fs::File::open(path) else {
         return String::new();
     };
-    let mark = LOG_MARK.load(Ordering::Relaxed);
     let len = file.metadata().map(|m| m.len()).unwrap_or(0);
-    if len > mark && file.seek(SeekFrom::Start(mark)).is_err() {
+    let start = read_start(len, LOG_MARK.load(Ordering::Relaxed));
+    if file.seek(SeekFrom::Start(start)).is_err() {
         return String::new();
     }
     let mut buffer = Vec::new();
@@ -375,32 +391,40 @@ fn log_since_mark() -> String {
 ///
 /// Every line is prefixed with the account it concerns, as `[U:1:<steamid3>]`, and
 /// the result is an EResult name in quotes. Those names are Steam's internal
-/// identifiers and are not translated, unlike anything it puts on screen.
+/// identifiers and are not translated, unlike anything it puts on screen. The
+/// brackets matter: without the closing one a short account id would match inside a
+/// longer one.
 fn verdict_in_log(text: &str, expected: u32) -> Option<SignInCheck> {
     let ours = format!("[U:1:{expected}]");
+    let mut somebody_else = None;
 
     for line in text.lines() {
         if !line.contains("RecvMsgClientLogOnResponse()") {
             continue;
         }
-        if !line.contains(&ours) {
-            // A response for somebody else means Steam signed in as another account.
-            if line.contains("'OK'") && line.contains("[U:1:") {
-                return Some(SignInCheck::OtherAccount);
+
+        if line.contains(&ours) {
+            if line.contains("'OK'") {
+                return Some(SignInCheck::Confirmed);
+            }
+            // 'Access Denied' is the refusal for a revoked or expired login code.
+            // Other results ('Try another CM', 'Failure') are transient and Steam
+            // retries them, so they are deliberately not treated as an answer.
+            if line.contains("'Access Denied'") {
+                return Some(SignInCheck::Rejected);
             }
             continue;
         }
-        if line.contains("'OK'") {
-            return Some(SignInCheck::Confirmed);
-        }
-        // 'Access Denied' is the refusal for a revoked or expired login code. Other
-        // results ('Try another CM', 'Failure') are transient and Steam retries them,
-        // so they are deliberately not treated as an answer.
-        if line.contains("'Access Denied'") {
-            return Some(SignInCheck::Rejected);
+
+        // Steam can fall back to a remembered account after refusing ours. Remember
+        // that, but keep reading: what happened to the account we asked for is the
+        // better answer, and it may be logged after the fallback.
+        if line.contains("'OK'") && line.contains("[U:1:") && somebody_else.is_none() {
+            somebody_else = Some(SignInCheck::OtherAccount);
         }
     }
-    None
+
+    somebody_else
 }
 
 /// Waits for Steam to say whether it accepted the login code.
@@ -418,18 +442,34 @@ pub fn wait_for_sign_in(steamid: &str) -> SignInCheck {
         return SignInCheck::Confirmed;
     };
 
+    let generation = ATTEMPT.load(Ordering::Relaxed);
+    if generation == 0 {
+        // Nothing has been launched, so there is no mark and the whole log would read
+        // as new. That is the shape of the bug read_start exists to prevent, so refuse
+        // to answer rather than judge an account by somebody else's old logon.
+        return SignInCheck::Unknown;
+    }
     let start = std::time::Instant::now();
 
     while start.elapsed() < MAX_WAIT {
-        // The registry is the cheaper confirmation and settles first on a fast sign-in.
-        match process::active_user() {
-            0 => {}
-            id if id == expected => return SignInCheck::Confirmed,
-            _ => return SignInCheck::OtherAccount,
+        // A newer sign-in has taken over the log mark, so anything read now describes
+        // that attempt rather than this one.
+        if ATTEMPT.load(Ordering::Relaxed) != generation {
+            return SignInCheck::Unknown;
         }
 
+        // The log first. It says which account each result belongs to, so a refusal
+        // of ours is not hidden by Steam signing in as somebody else straight after.
         if let Some(verdict) = verdict_in_log(&log_since_mark(), expected) {
             return verdict;
+        }
+
+        // The registry only ever confirms. A different account here is not evidence
+        // of anything: it can be a value left over from before, or one Steam wrote
+        // while starting up, and treating it as an answer reported "signed in as a
+        // different account" for sign-ins that were still in progress.
+        if process::active_user() == expected {
+            return SignInCheck::Confirmed;
         }
 
         std::thread::sleep(Duration::from_millis(500));
@@ -504,5 +544,60 @@ mod sign_in_log_tests {
     fn transient_failures_are_not_a_refusal() {
         let text = "[2026-09-10 12:22:49] [Logging On, 4, 7] [U:1:301155508] RecvMsgClientLogOnResponse() : 'Try another CM' / 'Failure'\n";
         assert_eq!(verdict(text, 301155508), None);
+    }
+
+    /// The regression that reported "signed in as a different account" every time.
+    /// At the first poll Steam has written nothing, so the log is exactly as long as
+    /// the mark. That has to read as empty; reading from 0 instead handed the whole
+    /// history to verdict_in_log, whose oldest success line belongs to some other
+    /// account.
+    #[test]
+    fn nothing_written_yet_reads_as_empty() {
+        assert_eq!(read_start(4096, 4096), 4096);
+    }
+
+    #[test]
+    fn new_lines_are_read_from_the_mark() {
+        assert_eq!(read_start(5000, 4096), 4096);
+    }
+
+    /// Steam rotates the log, so a shorter file means all of it is new.
+    #[test]
+    fn a_rotated_log_is_read_whole() {
+        assert_eq!(read_start(120, 4096), 0);
+    }
+
+    /// Straight from the user's connection_log.txt: an old success for an unrelated
+    /// account, which is what the offset bug served up on every sign-in.
+    #[test]
+    fn stale_history_would_have_claimed_another_account() {
+        let history = "[2025-10-09 17:18:56] [Logging On, 4, 7] [U:1:1927044972] RecvMsgClientLogOnResponse() : [U:1:1927044972] 'OK'";
+        assert_eq!(verdict(history, 442115668), Some("other"));
+        assert_eq!(verdict("", 442115668), None);
+    }
+
+    /// Steam refusing our code and then falling back to a remembered account. What
+    /// happened to the account we asked for is the answer, whichever order the two
+    /// land in the log.
+    #[test]
+    fn a_refusal_beats_a_fallback_login() {
+        let denied_first = concat!(
+            "[U:1:442115668] RecvMsgClientLogOnResponse() : [I:0:0] 'Access Denied'\n",
+            "[U:1:1595689475] RecvMsgClientLogOnResponse() : [U:1:1595689475] 'OK'\n",
+        );
+        let fallback_first = concat!(
+            "[U:1:1595689475] RecvMsgClientLogOnResponse() : [U:1:1595689475] 'OK'\n",
+            "[U:1:442115668] RecvMsgClientLogOnResponse() : [I:0:0] 'Access Denied'\n",
+        );
+        assert_eq!(verdict(denied_first, 442115668), Some("rejected"));
+        assert_eq!(verdict(fallback_first, 442115668), Some("rejected"));
+    }
+
+    /// A short account id must not match inside a longer one.
+    #[test]
+    fn account_ids_do_not_match_by_prefix() {
+        let text = "[U:1:1685045653] RecvMsgClientLogOnResponse() : [U:1:1685045653] 'OK'";
+        assert_eq!(verdict(text, 168504565), Some("other"));
+        assert_eq!(verdict(text, 1685045653), Some("ok"));
     }
 }
