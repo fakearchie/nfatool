@@ -187,9 +187,47 @@ pub fn prune_expired(app: AppHandle) -> Result<String, String> {
     finish_account_op(&app, steam::prune_expired_tokens())
 }
 
+/// Asks the updater first, and the releases API only if the updater cannot answer.
+///
+/// Two reasons the updater comes first. It reads the signed manifest, so what it
+/// reports is what can actually be installed. And it is not the anonymous GitHub
+/// REST API, which allows 60 requests an hour per address: behind office NAT or a
+/// VPN exit that budget is spent by other people, and this check would just fail.
+///
+/// Async matters as much as the source. A plain `fn` command runs inline on the
+/// thread handling the IPC call, and this now runs by itself at every start, so a
+/// ten second timeout against an unreachable GitHub froze the window right after
+/// the picker appeared.
 #[tauri::command]
-pub fn check_for_update() -> Result<update::UpdateInfo, String> {
-    update::check(env!("CARGO_PKG_VERSION"))
+pub async fn check_for_update(app: AppHandle) -> Result<update::UpdateInfo, String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let current = env!("CARGO_PKG_VERSION").to_string();
+
+    let found = match app.updater() {
+        Ok(updater) => updater.check().await,
+        Err(e) => Err(e),
+    };
+
+    match found {
+        Ok(Some(update)) => Ok(update::UpdateInfo {
+            available: true,
+            current,
+            latest: update.version.clone(),
+            notes: update.body.clone().unwrap_or_default(),
+            url: update::RELEASES_PAGE.to_string(),
+        }),
+        Ok(None) => Ok(update::UpdateInfo {
+            available: false,
+            latest: current.clone(),
+            current,
+            notes: String::new(),
+            url: update::RELEASES_PAGE.to_string(),
+        }),
+        // No manifest, or it could not be read. The releases API still knows whether
+        // a newer version exists, and saying so beats claiming this is the latest.
+        Err(_) => update::check(&current),
+    }
 }
 
 /// Downloads the signed installer and runs it, which closes the app.

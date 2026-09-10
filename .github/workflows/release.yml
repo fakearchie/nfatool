@@ -84,6 +84,15 @@ jobs:
             exit 1
           }
 
+          # tauri.conf.json's version is the one baked into the binary, and it is what
+          # installed copies compare a manifest against. Cargo.toml matching the tag
+          # while this does not would ship a build that refuses every later update.
+          $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          if ($conf.version -ne $short) {
+            Write-Error "Tag version $version does not match tauri.conf.json ($($conf.version)). Installed copies compare against that value, so it has to equal the tag."
+            exit 1
+          }
+
           "version=$version" >> $env:GITHUB_OUTPUT
           "short=$short" >> $env:GITHUB_OUTPUT
           "tag_name=$version" >> $env:GITHUB_OUTPUT

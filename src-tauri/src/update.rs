@@ -2,7 +2,7 @@
 use serde::Serialize;
 
 const RELEASES_API: &str = "https://api.github.com/repos/fakearchie/nfatool/releases/latest";
-const RELEASES_PAGE: &str = "https://github.com/fakearchie/nfatool/releases/latest";
+pub const RELEASES_PAGE: &str = "https://github.com/fakearchie/nfatool/releases/latest";
 
 #[derive(Serialize, Default)]
 pub struct UpdateInfo {
