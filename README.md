@@ -28,7 +28,8 @@ Closes to the system tray — switch accounts from there too.
 
 ## Good to know
 
-- **Login codes are encrypted at rest** with Windows DPAPI, so a copied data file is useless on any other machine or user account.
+- **Lock it with a password.** Optional. Your login codes get encrypted with a key derived from it (Argon2id + AES-256-GCM), and the app asks for it on every start. You get a recovery code when you set one &mdash; keep it, because there is no reset.
+- **Login codes are encrypted at rest** even without a password, using Windows DPAPI, so a copied data file is useless on any other machine or user account.
 - **Streamer mode** hides usernames and Steam IDs, and the window can be excluded from OBS, Discord and screenshots entirely.
 - **Steam Web API key** (optional) adds level and ban info to each account. Without one you still get online status.
 - **CS2 extras** — shared launch options, copy your settings onto every alt, skip Workshop re-downloads, launch the game on sign-in.

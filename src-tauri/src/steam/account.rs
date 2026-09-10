@@ -14,9 +14,6 @@ pub struct SteamAccount {
     pub avatar_path: Option<PathBuf>,
     pub most_recent: bool,
     pub timestamp: Option<String>,
-    // Raw JWT from our own store, when available. Never sent to the frontend;
-    // used to re-provision Steam on sign-in. None for accounts we only see in
-    // Steam's loginusers.vdf (e.g. imported before token persistence).
     pub token: Option<String>,
 }
 
@@ -49,22 +46,14 @@ pub fn load_steam_accounts() -> Result<Vec<SteamAccount>, String> {
     let steam_path = get_steam_path()?;
     let steam_path = Path::new(&steam_path);
     let loginusers_path = steam_path.join("config").join("loginusers.vdf");
-    // Missing/unreadable loginusers.vdf is not fatal — our own records below may
-    // still list accounts (e.g. right after a login-cache reset).
     let content = fs::read_to_string(&loginusers_path).unwrap_or_default();
 
     let mut accounts = parse_loginusers(&content);
 
-    // Merge the app's persistent records: attach stored tokens to known accounts,
-    // and surface any saved account Steam has since forgotten so it can be signed
-    // back in from its token.
     let records = super::tokens::load_records();
     let mut seen: HashSet<String> = accounts.iter().map(|a| a.steamid.clone()).collect();
     for account in &mut accounts {
         if let Some(rec) = records.get(&account.steamid) {
-            // Empty means the stored blob would not decrypt on this machine. Treat
-            // that as "no token" so sign-in falls back to Steam's own cache rather
-            // than writing an empty JWT over a working one.
             account.token = Some(rec.token.clone()).filter(|t| !t.is_empty());
             if account.account_name.is_empty() {
                 account.account_name = rec.account_name.clone();
@@ -87,8 +76,6 @@ pub fn load_steam_accounts() -> Result<Vec<SteamAccount>, String> {
     }
 
     for account in &mut accounts {
-        // loginusers.vdf carries no Avatar field; Steam records each account's own
-        // avatar hash inside that account's localconfig.vdf instead.
         if account.avatar_hash.is_none() {
             account.avatar_hash = read_own_avatar_hash(steam_path, &account.steamid);
         }
@@ -142,13 +129,16 @@ fn parse_loginusers(content: &str) -> Vec<SteamAccount> {
     accounts
 }
 
-/// Reads the account's own avatar hash out of its `localconfig.vdf`, where Steam
-/// stores it under `friends` -> "<steamid3>" -> "avatar". Returns `None` when the
-/// file is absent, the account has no self entry, or the hash is the all-zero
-/// placeholder Steam uses for "no avatar set".
+static LOCALCONFIG_MEMO: crate::cache::FileMemo = crate::cache::FileMemo::new();
+
 fn read_own_avatar_hash(steam_path: &Path, steamid: &str) -> Option<String> {
     let steamid3 = steamid64_to_steamid3(steamid).ok()?;
-    let content = fs::read_to_string(localconfig_path(steam_path, &steamid3)).ok()?;
+    let path = localconfig_path(steam_path, &steamid3);
+    LOCALCONFIG_MEMO.get_or(&path, || scan_avatar_hash(&path, &steamid3))
+}
+
+fn scan_avatar_hash(path: &Path, steamid3: &str) -> Option<String> {
+    let content = fs::read_to_string(path).ok()?;
 
     let mut in_self = false;
     let mut depth = 0i32;
@@ -189,7 +179,6 @@ fn read_own_avatar_hash(steam_path: &Path, steamid: &str) -> Option<String> {
     None
 }
 
-/// Steam's public avatar CDN. `_full` is the 184px variant.
 pub fn avatar_cdn_url(hash: &str) -> String {
     format!("https://avatars.steamstatic.com/{hash}_full.jpg")
 }

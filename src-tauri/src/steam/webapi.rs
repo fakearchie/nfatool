@@ -1,9 +1,3 @@
-//! Read-only account intelligence from Steam's public Web API.
-//!
-//! Everything here is a plain GET against Valve's documented endpoints — no
-//! login, no game-coordinator session, nothing that touches an account. With a
-//! user-supplied Web API key we can read level, ban flags and online status; with
-//! no key we fall back to scraping the public profile XML for status only.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -14,30 +8,22 @@ use serde_json::Value;
 const API: &str = "https://api.steampowered.com";
 const TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Steam's batch endpoints accept at most 100 SteamIDs per call.
 const BATCH: usize = 100;
 
-/// Politeness delay between un-keyed profile-XML requests.
 const XML_THROTTLE: Duration = Duration::from_millis(400);
 
-/// What we can learn about an account without signing into it.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct AccountIntel {
     pub persona_name: Option<String>,
     pub avatar_hash: Option<String>,
-    /// Valve's `personastate`: 0 offline, 1 online, 2 busy, 3 away, 4 snooze,
-    /// 5 looking to trade, 6 looking to play. `None` when unknown.
     pub persona_state: Option<u8>,
-    /// Present only while the account is in a game.
     pub game: Option<String>,
     pub level: Option<u32>,
     pub vac_banned: bool,
     pub vac_bans: u32,
     pub game_bans: u32,
     pub community_banned: bool,
-    /// "none" | "probation" | "banned"
     pub trade_ban: Option<String>,
-    /// True when any ban above applies — drives the tile's warning dot.
     pub banned: bool,
 }
 
@@ -74,8 +60,6 @@ fn http_error(e: ureq::Error) -> String {
     }
 }
 
-/// Checks a key against a trivial endpoint. `Ok(false)` means the key is wrong;
-/// `Err` means we could not tell (offline, Steam down).
 pub fn validate_key(key: &str) -> Result<bool, String> {
     let key = key.trim();
     if key.len() != 32 || !key.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -89,7 +73,6 @@ pub fn validate_key(key: &str) -> Result<bool, String> {
     }
 }
 
-/// Full intelligence for a roster, using a Web API key.
 pub fn fetch_with_key(key: &str, steamids: &[String]) -> Result<Map, String> {
     let mut out: Map = HashMap::new();
     for chunk in steamids.chunks(BATCH) {
@@ -131,7 +114,6 @@ fn merge_bans(key: &str, ids: &[String], out: &mut Map) -> Result<(), String> {
         ids.join(",")
     );
     let json = get_json(&url)?;
-    // Note: this endpoint returns a top-level "players", not "response.players".
     let players = json["players"].as_array().cloned().unwrap_or_default();
     for p in players {
         let Some(id) = p["SteamId"].as_str() else {
@@ -147,9 +129,6 @@ fn merge_bans(key: &str, ids: &[String], out: &mut Map) -> Result<(), String> {
     Ok(())
 }
 
-/// `GetSteamLevel` has no batch form, so this is one request per account. They
-/// run concurrently — sequentially it would add a second or more per account.
-/// A failed level is not fatal: the badge just doesn't render.
 fn merge_levels(key: &str, ids: &[String], out: &mut Map) {
     let results: Vec<(String, Option<u32>)> = std::thread::scope(|scope| {
         let handles: Vec<_> = ids
@@ -177,8 +156,6 @@ fn merge_levels(key: &str, ids: &[String], out: &mut Map) {
     }
 }
 
-/// No-key fallback: the public profile XML gives online status and persona name
-/// but nothing about levels or bans.
 pub fn fetch_without_key(steamids: &[String]) -> Map {
     let mut out: Map = HashMap::new();
     for (i, id) in steamids.iter().enumerate() {
@@ -213,7 +190,6 @@ pub fn fetch_without_key(steamids: &[String]) -> Map {
     out
 }
 
-/// Minimal tag reader for Steam's profile XML, unwrapping CDATA when present.
 fn tag_text(xml: &str, tag: &str) -> Option<String> {
     let open = format!("<{tag}>");
     let close = format!("</{tag}>");
@@ -277,7 +253,6 @@ mod tests {
 
     #[test]
     fn obviously_malformed_keys_are_rejected_offline() {
-        // Short-circuits before any network call.
         assert_eq!(validate_key(""), Ok(false));
         assert_eq!(validate_key("not-a-key"), Ok(false));
         assert_eq!(validate_key(&"z".repeat(32)), Ok(false));

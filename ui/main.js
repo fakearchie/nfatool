@@ -15,9 +15,7 @@ const colorFilterEl = el("colorFilter");
 const colorMenu = el("colorMenu");
 
 let accounts = [];
-/// steamid -> public account data from Steam's Web API (level, bans, status).
 let intel = {};
-/// steamid -> { color, cooldown_until, last_used } — our own, user-assigned.
 let meta = {};
 let searchQuery = "";
 let colorFilter = "";
@@ -50,11 +48,10 @@ const VIEWS = {
   account: el("accountView"),
   add: el("addView"),
   settings: el("settingsView"),
+  lock: el("lockView"),
 };
 
 function toast(message, kind = "ok") {
-  // The window is short; a stack would climb over the account row, so the
-  // newest message replaces the previous one.
   while (toastWrap.firstElementChild) toastWrap.firstElementChild.remove();
   const node = document.createElement("div");
   node.className = "toast " + kind;
@@ -78,11 +75,9 @@ function escapeHtml(s) {
 }
 const escapeAttr = escapeHtml;
 
-/* ---------- Backdrop: a tilted, blurred grid of capsules, drawn in CSS ---------- */
 function paintBackdrop() {
   const host = el("capsules");
   if (!host) return;
-  // Deterministic so the backdrop never reshuffles between renders.
   let seed = 0x9e3779b9;
   const rand = () => {
     seed |= 0;
@@ -106,20 +101,16 @@ function paintBackdrop() {
   host.innerHTML = html;
 }
 
-/* ---------- View routing ---------- */
 function showView(name) {
   currentView = name;
   for (const [key, node] of Object.entries(VIEWS)) {
     node.classList.toggle("hidden", key !== name);
   }
-  backBtn.classList.toggle("hidden", name === "picker" || name === "signing");
-  footlinks.classList.toggle("hidden", name === "signing");
+  const bare = name === "signing" || name === "lock";
+  backBtn.classList.toggle("hidden", name === "picker" || bare);
+  footlinks.classList.toggle("hidden", bare);
 }
 
-/* ---------- Account picker ---------- */
-/// An account imported from a bare "steamid||token" code has no username, so its
-/// name ends up being the SteamID — which then renders as the ID twice, once as
-/// the name and once as the login. Steam knows the real persona name; use it.
 const isPlaceholderName = (name, steamid) => !name || name === steamid;
 
 function displayAccount(acc, index) {
@@ -143,16 +134,12 @@ function iconInner(view) {
   if (view.avatar) {
     return `<img src="${escapeAttr(view.avatar)}" alt="" />`;
   }
-  // Steam knows this account's avatar but hasn't cached the image locally, so
-  // let the webview pull it from Steam's CDN. Falls back to the silhouette if
-  // the request fails (offline, deleted avatar, blocked network).
   if (view.avatar_url) {
     return `<img class="remote-avatar" src="${escapeAttr(view.avatar_url)}" alt="" />`;
   }
   return DEFAULT_AVATAR_SVG;
 }
 
-// `error` does not bubble, so listen in the capture phase.
 document.addEventListener(
   "error",
   (e) => {
@@ -166,8 +153,6 @@ document.addEventListener(
 
 const ADD_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg>';
-// Steam's own name tints: online #6dcff6, in-game #8cd61d. Applied to the persona
-// name that already fades in on hover, which is exactly where Steam puts it.
 function statusClass(info) {
   if (!info) return "";
   if (info.game) return "is-ingame";
@@ -183,9 +168,7 @@ function statusClass(info) {
   }
 }
 
-/* ---------- Metadata: tags, cooldowns, last-used ---------- */
 const COLORS = ["red", "amber", "green", "blue", "purple", "gray"];
-// The CS2 competitive ladder, which is what a cooldown almost always is.
 const COOLDOWNS = [
   { label: "20h", seconds: 20 * 3600 },
   { label: "7d", seconds: 7 * 86400 },
@@ -200,7 +183,6 @@ function onCooldown(m) {
   return Boolean(m.cooldown_until && m.cooldown_until > nowUnix());
 }
 
-/// "6h 12m", "2d 4h" — the panel has room for two units, unlike the tray.
 function remainingText(until) {
   let left = Math.max(0, until - nowUnix());
   const days = Math.floor(left / 86400);
@@ -214,6 +196,8 @@ function remainingText(until) {
   return "under a minute";
 }
 
+// Dates use toLocaleString deliberately; NUMBERS must not - on a German locale
+// it renders 18432 as "18.432", which reads as eighteen-point-four.
 function agoText(unix) {
   const secs = Math.max(0, nowUnix() - unix);
   if (secs < 90) return "just now";
@@ -259,13 +243,10 @@ function render() {
   const hasAccounts = accounts.length > 0;
   pickerHeadline.textContent = hasAccounts ? "Who's playing?" : "Add your first account";
 
-  // Most recently used first, the way Steam surfaces the current user first.
   const ordered = accounts
     .map((acc, index) => ({ acc, index }))
     .sort((a, b) => Number(b.acc.most_recent) - Number(a.acc.most_recent));
 
-  // Search matches what is on screen, not the underlying record — otherwise a
-  // query would confirm a real name that streamer mode is hiding.
   const query = searchQuery.trim().toLowerCase();
   const matching = ordered.filter(({ acc, index }) => {
     if (colorFilter && metaFor(acc.steamid).color !== colorFilter) return false;
@@ -278,9 +259,6 @@ function render() {
   });
 
   const filtering = Boolean(query || colorFilter);
-  // Steam caps the row at 8 (GetLoginUsers().slice(0, 8)); we keep the rest
-  // reachable behind a toggle rather than dropping them. A search is already a
-  // deliberate narrowing, so it shows everything it found.
   const overflowing = matching.length > ROW_CAP && !filtering;
   const shown = overflowing && !showAllAccounts ? matching.slice(0, ROW_CAP) : matching;
 
@@ -293,7 +271,6 @@ function render() {
   moreBtn.classList.toggle("hidden", !overflowing);
   moreBtn.classList.toggle("is-on", showAllAccounts);
   if (overflowing) {
-    // The count only survives as the tooltip now, so it has to carry the label.
     const tip = showAllAccounts
       ? `Show ${ROW_CAP} most recent`
       : `Show all ${matching.length} accounts`;
@@ -306,8 +283,6 @@ function render() {
       const view = displayAccount(acc, index);
       const info = intel[acc.steamid];
       const m = metaFor(acc.steamid);
-      // Greying a banned account out reads as "unavailable" on its own, before
-      // anyone reads the ribbon.
       const state = [
         info?.banned ? "is-banned" : "",
         onCooldown(m) ? "is-cooldown" : "",
@@ -325,7 +300,6 @@ function render() {
     })
     .join("");
 
-  // While filtering, "Add Account" is not one of the things you searched for.
   const addTile = filtering
     ? ""
     : `<div class="user new" role="button" tabindex="0" id="addTile" aria-label="Add Account">
@@ -335,12 +309,9 @@ function render() {
      </div>`;
   tiles.innerHTML = accountTiles + addTile;
   renderSelection();
-  // The CS2 source list is a list of accounts, so it goes stale with this one.
   syncCs2Source();
 }
 
-/// Public read-only lookups (level / bans / online status). Never fatal: the
-/// picker works fine without them, so a failure only logs.
 async function refreshIntel(force = false) {
   const steamids = accounts.map((a) => a.steamid);
   if (!steamids.length) {
@@ -348,9 +319,6 @@ async function refreshIntel(force = false) {
     lastIntelIds = "";
     return;
   }
-  // Steam rate-limits, so don't re-ask on every internal refresh — but a changed
-  // roster must always refetch, or new accounts sit there with no badges while
-  // removed ones keep theirs.
   const roster = steamids.join(",");
   const rosterChanged = roster !== lastIntelIds;
   if (!force && !rosterChanged && Date.now() - lastIntelAt < 30000) return;
@@ -358,8 +326,6 @@ async function refreshIntel(force = false) {
   lastIntelIds = roster;
   try {
     const result = await invoke("fetch_account_intel", { steamids });
-    // A roster change while this was in flight means the reply is stale —
-    // applying it would wipe the badges for the accounts now on screen.
     if (accounts.map((a) => a.steamid).join(",") !== roster) return;
     intel = result;
     render();
@@ -381,9 +347,6 @@ async function refresh() {
   }
 }
 
-/* ---------- Account detail ----------
-   Everything the tiles used to hint at with badges lives here instead, spelled
-   out, one click away — along with the two things you can actually do. */
 const accountAvatar = el("accountAvatar");
 const accountPersona = el("accountPersona");
 const accountLogin = el("accountLogin");
@@ -412,9 +375,6 @@ function statusText(info) {
   }
 }
 
-/// `copy` is what lands on the clipboard when the value is clicked — pass the
-/// literal text, or "token:<steamid>" to have the backend hand over the saved code
-/// (which the frontend never holds).
 function factRow(label, value, kind, copy, hint) {
   const attr = copy ? ` data-copy="${escapeAttr(copy)}"` : "";
   const tip = hint || (copy ? "Click to copy" : "");
@@ -422,13 +382,10 @@ function factRow(label, value, kind, copy, hint) {
   return `<div class="fact${kind ? ` ${kind}` : ""}"><dt>${escapeHtml(label)}</dt><dd${attr}${title}>${escapeHtml(value)}</dd></div>`;
 }
 
-/// A fact whose value is a button in disguise. Same affordance as a copyable
-/// value — no extra row, which the panel has no height for.
 function actionFact(label, value, action, kind, hint) {
   return `<div class="fact${kind ? ` ${kind}` : ""}"><dt>${escapeHtml(label)}</dt><dd data-act="${escapeAttr(action)}"${hint ? ` title="${escapeAttr(hint)}"` : ""}>${escapeHtml(value)}</dd></div>`;
 }
 
-/// How the saved login code is doing: missing, expired, or good for a while.
 function codeFact(acc) {
   if (!acc.has_token) {
     return factRow("Login code", "Not saved", "bad");
@@ -456,8 +413,6 @@ function openAccount(steamid) {
   accountPersona.textContent = view.display_name;
   accountPersona.className = `account-persona ${statusClass(info)}`;
   accountLogin.textContent = view.account_name;
-  // Without a username the login line repeats the name verbatim, which is just
-  // the same string printed twice.
   accountLogin.classList.toggle("hidden", view.account_name === view.display_name);
 
   const rows = [factRow("Status", statusText(info))];
@@ -479,15 +434,11 @@ function openAccount(steamid) {
       : factRow("Steam ID", acc.steamid, "", acc.steamid)
   );
   accountFacts.innerHTML = rows.join("");
-  // The fade only makes sense when there is genuinely something below the fold.
   accountFacts.classList.toggle(
     "is-scrollable",
     accountFacts.scrollHeight > accountFacts.clientHeight
   );
 
-  // When a cooldown is running, the chip that clears it also *is* the readout —
-  // a separate "Cooldown: 2d 23h left" fact row said the same thing twice and
-  // cost the panel a line it does not have.
   cooldownChips.innerHTML =
     COOLDOWNS.map(
       (c) =>
@@ -501,14 +452,11 @@ function openAccount(steamid) {
 
   colorPick.innerHTML = swatchesHtml(m.color || "");
 
-  // Signing in during a cooldown is legitimate (the cooldown is on matchmaking,
-  // not the account) — but it should be a deliberate press, not a reflex.
   accountSignIn.textContent = cooling ? "Sign in anyway" : "Sign in";
 
   showView("account");
 }
 
-/* ---------- Search + filter ---------- */
 function renderColorFilter() {
   colorFilterEl.innerHTML = swatchesHtml(colorFilter, "filter-swatch");
 }
@@ -520,8 +468,6 @@ function setFilterOpen(open, { focus = true } = {}) {
     renderColorFilter();
     if (focus) searchInput.focus();
   } else {
-    // Leaving the bar open with a live query but no way to see it would silently
-    // hide accounts, so closing always clears.
     searchQuery = "";
     colorFilter = "";
     searchInput.value = "";
@@ -534,7 +480,6 @@ function onSearchInput() {
   render();
 }
 
-/* ---------- Tags ---------- */
 async function applyColor(steamid, color) {
   try {
     await invoke("set_account_color", { steamid, color });
@@ -562,9 +507,6 @@ function openColorMenu(steamid, x, y) {
     `<div class="ctxmenu-sep"></div>` +
     `<button type="button" class="ctxitem" data-cmd="remove">Remove account</button>`;
   colorMenu.classList.remove("hidden");
-  // Park it at the origin before measuring: left over from a previous open, the
-  // menu can sit against the right edge, where a fixed element shrink-wraps to
-  // the space left and reports a width narrower than it will actually render.
   colorMenu.style.left = "0px";
   colorMenu.style.top = "0px";
   const box = colorMenu.getBoundingClientRect();
@@ -579,10 +521,6 @@ function closeColorMenu() {
   colorMenuFor = null;
 }
 
-/* ---------- Copying ----------
-   A copy that silently fails is worse than useless — you paste the last thing you
-   copied and never notice. So failures always toast; successes only do when there
-   is no inline confirmation to show instead. */
 async function runCopy(promise) {
   try {
     const msg = await promise;
@@ -612,30 +550,24 @@ async function copyFactValue(dd) {
   }
 }
 
-/* ---------- Cooldowns ---------- */
 async function applyCooldown(steamid, seconds) {
   const until = seconds > 0 ? nowUnix() + seconds : null;
   try {
     await invoke("set_account_cooldown", { steamid, until });
     meta = { ...meta, [steamid]: { ...metaFor(steamid), cooldown_until: until } };
     render();
-    // Re-open so the facts, the chips and the CTA all reflect the new state.
     if (currentView === "account" && openAccountId === steamid) openAccount(steamid);
   } catch (e) {
     toast(formatError(e), "err");
   }
 }
 
-/* ---------- Multi-select ----------
-   Ctrl+click gathers accounts so a tag or a purge can be done once instead of
-   N times. Signing in is deliberately absent: you can only be one account. */
 const selBar = el("selBar");
 const selCount = el("selCount");
 const selColor = el("selColor");
 const selected = new Set();
 
 function renderSelection() {
-  // Accounts can disappear (removal, filtering) while selected; drop those.
   for (const id of [...selected]) {
     if (!accounts.some((a) => a.steamid === id)) selected.delete(id);
   }
@@ -694,13 +626,11 @@ function askRemoveSelected() {
       }
       selected.clear();
       await refresh();
-      // Silent on success — the tiles vanishing is the confirmation.
       if (failed.length) toast(`${failed.length} could not be removed.`, "err");
     }
   );
 }
 
-/* ---------- Signing in ---------- */
 const signingAvatar = el("signingAvatar");
 const signingName = el("signingName");
 
@@ -725,8 +655,6 @@ async function signIn(steamid) {
     await Promise.all([settled, minimumDwell]);
     await refresh();
     showView("picker");
-    // No toast: the signing screen just showed who, and the tile moves to the
-    // front. Announcing it again only restates what you already watched happen.
   } catch (e) {
     await minimumDwell;
     await refresh();
@@ -735,7 +663,6 @@ async function signIn(steamid) {
   }
 }
 
-/* ---------- Add account ---------- */
 const importInput = el("importInput");
 const importStatus = el("importStatus");
 const doImportBtn = el("doImportBtn");
@@ -746,20 +673,14 @@ function codeCount() {
   return importInput.value.split("\n").filter((line) => line.trim()).length;
 }
 
-// The box starts one line tall and grows with what you paste, rather than
-// reserving an empty void.
 function syncImportForm() {
   importInput.style.height = "auto";
   const wanted = Math.max(40, importInput.scrollHeight);
   importInput.style.height = wanted + "px";
 
-  // A single pasted code wraps over many lines; without this the box grows
-  // until it pushes the Import button out of the stage entirely.
   const room =
     stageEl.getBoundingClientRect().bottom - addForm.getBoundingClientRect().bottom - 8;
   if (room < 0) {
-    // Measure what the box is ACTUALLY rendering at — `wanted` may already have
-    // been capped by max-height, in which case subtracting from it does nothing.
     const rendered = importInput.getBoundingClientRect().height;
     importInput.style.height = Math.max(40, rendered + room) + "px";
   }
@@ -772,7 +693,6 @@ function syncImportForm() {
 function setImportStatus(text, kind) {
   importStatus.textContent = text;
   importStatus.className = kind === "err" ? "form-msg err" : "form-msg";
-  // The message changes the form's height, so the input has to give room back.
   syncImportForm();
 }
 
@@ -792,8 +712,6 @@ async function pasteIntoImport() {
   }
 }
 
-/// Shared tail for the alternative import routes. `CANCELLED` comes back when the
-/// user closed the file picker, which is not an error worth shouting about.
 async function runImport(promise) {
   setImportStatus("Importing…", "ok");
   try {
@@ -821,15 +739,12 @@ async function importManual() {
     const msg = await invoke("import_account", { payload });
     await refresh();
     showView("picker");
-    // The backend names the account it imported, which streamer mode is meant to
-    // keep off screen — so fall back to a count it can't leak anything through.
     toast(settings.streamer_mode ? `Imported ${n} account${n > 1 ? "s" : ""}.` : msg, "ok");
   } catch (e) {
     setImportStatus(formatError(e), "err");
   }
 }
 
-/* ---------- Destructive actions ---------- */
 function askRemove(steamid) {
   const idx = accounts.findIndex((a) => a.steamid === steamid);
   const acc = accounts[idx];
@@ -841,9 +756,7 @@ function askRemove(steamid) {
   openConfirm("Remove account", `Remove ${name}?`, "Remove", async () => {
     try {
       await invoke("remove_account", { steamid });
-      // The tile disappearing is the confirmation.
       await refresh();
-      // The account we were looking at is gone, so don't sit on its panel.
       if (currentView === "account") {
         openAccountId = null;
         showView("picker");
@@ -871,12 +784,20 @@ function askClearSteam() {
   );
 }
 
-/* ---------- Confirm ---------- */
 const confirmModal = el("confirmModal");
-/// `tone` is "danger" (the default — this dialog exists mostly to guard deletes)
-/// or "primary" for a confirmation that isn't destructive. A red button on
-/// "Open download page" tells the user to be careful about nothing.
+const confirmInput = el("confirmInput");
+
+function openPrompt(title, text, label, placeholder, handler, type = "text") {
+  openConfirm(title, text, label, handler, "primary");
+  confirmInput.value = "";
+  confirmInput.type = type;
+  confirmInput.placeholder = placeholder;
+  confirmInput.classList.remove("hidden");
+  setTimeout(() => confirmInput.focus(), 60);
+}
+
 function openConfirm(title, text, label, handler, tone = "danger") {
+  confirmInput.classList.add("hidden");
   el("confirmTitle").textContent = title;
   el("confirmText").textContent = text;
   const yes = el("confirmYes");
@@ -894,12 +815,8 @@ function closeConfirm() {
   confirmHandler = null;
 }
 
-/* ---------- Settings ---------- */
 const settingsView = VIEWS.settings;
 
-/// The CS2 config source is picked by account, so the list has to be rebuilt
-/// whenever the roster changes — and it must survive an account being removed,
-/// which is what the "no longer saved" entry is for.
 function syncCs2Source() {
   const current = settings.cs2_config_source || "";
   const options = [`<option value="">Don't copy</option>`];
@@ -920,16 +837,10 @@ function syncSettingsForm() {
     input.checked = Boolean(settings[input.dataset.setting]);
   }
   syncCs2Source();
-  // Same rule as the API key field: don't clobber what the user is typing when a
-  // save round-trips back through settings-changed.
   const launch = settings.cs2_launch_options || "";
   if (cs2LaunchInput.value !== launch && document.activeElement !== cs2LaunchInput) {
     cs2LaunchInput.value = launch;
   }
-  // Saving emits settings-changed, which lands back here. Only touch the key
-  // field when the stored value actually differs from what is on screen —
-  // otherwise a save would wipe the "Key accepted" verdict the user just earned,
-  // or clobber what they are still typing.
   const stored = settings.steam_api_key || "";
   if (apiKeyInput.value.trim() !== stored) {
     apiKeyInput.value = stored;
@@ -962,7 +873,6 @@ async function persistSettings() {
   }
 }
 
-/* ---------- Steam Web API key ---------- */
 const apiKeyInput = el("apiKeyInput");
 const apiKeyState = el("apiKeyState");
 const cs2LaunchInput = el("cs2LaunchInput");
@@ -999,19 +909,16 @@ function onApiKeyInput() {
     await saveApiKey(key);
     try {
       const ok = await invoke("validate_api_key", { key });
-      // The user kept typing; this verdict is about a key they no longer have.
       if (apiKeyInput.value.trim() !== key) return;
       setKeyState(ok ? "Key accepted" : "Steam rejected this key", ok ? "ok" : "err");
       if (ok) refreshIntel(true);
     } catch (e) {
       if (apiKeyInput.value.trim() !== key) return;
-      // Could not reach Steam — say so rather than blaming the key.
       setKeyState(formatError(e), "err");
     }
   }, 600);
 }
 
-/* ---------- About: version, updates, diagnostics ---------- */
 const versionText = el("versionText");
 const updateBtn = el("updateBtn");
 const logBox = el("logBox");
@@ -1065,7 +972,6 @@ function onSettingToggle(e) {
   persistSettings();
 }
 
-/* ---------- Wiring ---------- */
 el("pasteBtn").addEventListener("click", pasteIntoImport);
 doImportBtn.addEventListener("click", importManual);
 el("importFileBtn").addEventListener("click", () => runImport(invoke("import_from_file")));
@@ -1089,7 +995,6 @@ searchInput.addEventListener("input", onSearchInput);
 colorFilterEl.addEventListener("click", (e) => {
   const swatch = e.target.closest(".swatch");
   if (!swatch) return;
-  // Clicking the active colour clears the filter, so one control does both.
   colorFilter = swatch.dataset.color === colorFilter ? "" : swatch.dataset.color;
   renderColorFilter();
   render();
@@ -1119,8 +1024,6 @@ colorMenu.addEventListener("click", (e) => {
     case "copy-code":
       return runCopy(invoke("copy_token", { steamid }));
     case "copy-name":
-      // Streamer mode hides these names on screen; copying one would put it
-      // straight back on the clipboard.
       if (settings.streamer_mode) return toast("Hidden by streamer mode.", "err");
       return acc && runCopy(invoke("copy_text", { text: acc.account_name }).then(() => "Username copied."));
     case "profile":
@@ -1149,7 +1052,6 @@ el("selCopy").addEventListener("click", () =>
 );
 el("selExport").addEventListener("click", () =>
   runCopy(invoke("export_tokens_to_file", { steamids: [...selected] }).catch((e) => {
-    // Closing the save dialog is not a failure.
     if (formatError(e) === "__cancelled__") return "";
     throw e;
   }))
@@ -1168,8 +1070,6 @@ moreBtn.addEventListener("click", () => {
   render();
 });
 el("pruneBtn").addEventListener("click", () => {
-  // Deleting saved accounts is not something to do quietly on a refresh, however
-  // dead the token is — the record is the only copy the user has.
   openConfirm(
     "Remove expired codes",
     "Remove saved accounts whose login code has expired? Codes that can't be read are kept.",
@@ -1191,8 +1091,6 @@ backBtn.addEventListener("click", () => showView("picker"));
 settingsView.addEventListener("change", onSettingToggle);
 apiKeyInput.addEventListener("input", onApiKeyInput);
 
-// Debounced: saving on every keystroke would round-trip a settings-changed event
-// back into the field the user is still typing in.
 cs2LaunchInput.addEventListener("input", () => {
   clearTimeout(cs2LaunchTimer);
   cs2LaunchTimer = setTimeout(() => {
@@ -1211,16 +1109,25 @@ cs2SourceSelect.addEventListener("change", () => {
 });
 
 el("confirmYes").addEventListener("click", () => {
+  const needsValue = !confirmInput.classList.contains("hidden");
+  const value = confirmInput.value.trim();
+  if (needsValue && !value) return confirmInput.focus();
   const fn = confirmHandler;
   closeConfirm();
-  if (fn) fn();
+  if (fn) fn(value);
+});
+
+confirmInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    el("confirmYes").click();
+  }
 });
 
 confirmModal.addEventListener("click", (e) => {
   if (e.target === confirmModal) closeConfirm();
 });
 
-// Custom titlebar window controls (frameless window).
 const tauriWin = window.__TAURI__ && window.__TAURI__.window;
 const appWindow = tauriWin
   ? tauriWin.getCurrentWindow
@@ -1234,8 +1141,6 @@ if (appWindow) {
 }
 
 document.addEventListener("click", (e) => {
-  // Any click outside the tag menu dismisses it, including the one that opens a
-  // tile — so check this before anything else acts on the click.
   if (colorMenuFor && !e.target.closest("#colorMenu")) closeColorMenu();
 
   const closer = e.target.closest('[data-action="close-confirm"]');
@@ -1245,8 +1150,6 @@ document.addEventListener("click", (e) => {
   const tile = e.target.closest("[data-account]");
   if (tile) {
     if (e.ctrlKey || e.metaKey) return toggleSelected(tile.dataset.account);
-    // A plain click leaves the picker, so a selection left behind would be
-    // invisible state waiting to surprise someone.
     clearSelection();
     return openAccount(tile.dataset.account);
   }
@@ -1257,19 +1160,14 @@ const isTypingTarget = (node) =>
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    // Unwind one layer at a time, innermost first.
     if (!confirmModal.classList.contains("hidden")) return closeConfirm();
     if (colorMenuFor) return closeColorMenu();
     if (currentView === "picker" && clearSelection()) return;
     if (currentView === "picker" && filterOpen) return setFilterOpen(false);
-    // Anything that shows the back chevron is escapable, so a new view added
-    // later doesn't silently miss out.
     if (currentView !== "picker" && currentView !== "signing") showView("picker");
     return;
   }
 
-  // Type-to-search: on the picker, a bare letter opens the filter bar and lands
-  // in it, so finding one of 40 accounts doesn't start with hunting for a button.
   if (
     currentView === "picker" &&
     !filterOpen &&
@@ -1297,7 +1195,6 @@ document.addEventListener("keydown", (e) => {
       return openAccount(tile.dataset.account);
     }
   }
-  // Enter from the search box takes the top hit — the whole point of typing.
   if (e.key === "Enter" && e.target === searchInput) {
     const first = tiles.querySelector("[data-account]");
     if (first) {
@@ -1317,9 +1214,6 @@ document.addEventListener("keydown", (e) => {
 listen("accounts-changed", () => refresh());
 listen("settings-changed", () => loadSettings());
 listen("metadata-changed", () => loadMeta().then(render));
-// Tray sign-in has no signing screen to watch, so it is the one success worth
-// announcing. The backend sends only the steamid; the name is resolved here so
-// it goes through the same masking the tiles use.
 listen("signed-in", async (e) => {
   await refresh();
   const index = accounts.findIndex((a) => a.steamid === e.payload);
@@ -1331,8 +1225,170 @@ listen("status", (e) => {
 });
 listen("status-error", (e) => toast(e.payload, "err"));
 
-paintBackdrop();
-loadSettings().then(() => refresh());
+
+/* ---------- Password lock ---------- */
+const lockInput = el("lockInput");
+const lockError = el("lockError");
+const lockTitle = el("lockTitle");
+let usingRecovery = false;
+let vault = { enabled: false, unlocked: false };
+
+function showLock() {
+  usingRecovery = false;
+  lockTitle.textContent = "Locked";
+  lockInput.type = "password";
+  lockInput.placeholder = "Password";
+  lockInput.value = "";
+  lockError.textContent = "";
+  el("lockRecovery").classList.remove("hidden");
+  showView("lock");
+  setTimeout(() => lockInput.focus(), 60);
+}
+
+async function attemptUnlock() {
+  const secret = lockInput.value.trim();
+  if (!secret) return lockInput.focus();
+  el("lockUnlock").disabled = true;
+  lockError.textContent = "";
+  try {
+    await invoke("vault_unlock", { secret, isRecovery: usingRecovery });
+    lockInput.value = "";
+    await startApp();
+  } catch (e) {
+    lockError.textContent = formatError(e);
+    lockInput.select();
+  } finally {
+    el("lockUnlock").disabled = false;
+  }
+}
+
+function syncVaultUi() {
+  el("vaultState").textContent = vault.enabled ? "On" : "Off";
+  el("vaultToggleBtn").textContent = vault.enabled ? "Remove password" : "Set a password";
+  el("vaultChangeBtn").classList.toggle("hidden", !vault.enabled);
+  el("lockBtn").classList.toggle("hidden", !vault.enabled);
+}
+
+function showRecoveryCode(code) {
+  openConfirm(
+    "Save your recovery code",
+    `${code}
+
+This is the only way back in if you forget the password. It is shown once ` +
+      `and cannot be retrieved later. Write it down before closing this.`,
+    "I have saved it",
+    () => invoke("copy_text", { text: code }).then(() => toast("Recovery code copied.", "ok")),
+    "primary"
+  );
+}
+
+async function refreshVault() {
+  try {
+    vault = await invoke("vault_status");
+  } catch {
+    vault = { enabled: false, unlocked: false };
+  }
+  syncVaultUi();
+}
+
+el("lockUnlock").addEventListener("click", attemptUnlock);
+lockInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") attemptUnlock();
+});
+
+el("lockRecovery").addEventListener("click", () => {
+  usingRecovery = true;
+  lockTitle.textContent = "Recovery code";
+  lockInput.type = "text";
+  lockInput.placeholder = "XXXXX-XXXXX-XXXXX";
+  lockInput.value = "";
+  lockError.textContent = "";
+  el("lockRecovery").classList.add("hidden");
+  lockInput.focus();
+});
+
+el("lockBtn").addEventListener("click", () => {
+  invoke("vault_lock").then(() => {
+    accounts = [];
+    render();
+    showLock();
+  });
+});
+
+el("vaultToggleBtn").addEventListener("click", () => {
+  if (vault.enabled) {
+    openPrompt(
+      "Remove password",
+      "Enter the current password. Your login codes go back to being protected by Windows alone.",
+      "Remove",
+      "Password",
+      async (password) => {
+        try {
+          await invoke("vault_disable", { password });
+          await refreshVault();
+          toast("Password removed.", "ok");
+        } catch (e) {
+          toast(formatError(e), "err");
+        }
+      },
+      "password"
+    );
+    return;
+  }
+  openPrompt(
+    "Set a password",
+    "Asked for on every start, and used to encrypt your saved login codes. There is no way to " +
+      "reset it — you will get a recovery code to keep.",
+    "Set password",
+    "New password",
+    async (password) => {
+      try {
+        const code = await invoke("vault_enable", { password });
+        await refreshVault();
+        showRecoveryCode(code);
+      } catch (e) {
+        toast(formatError(e), "err");
+      }
+    },
+    "password"
+  );
+});
+
+el("vaultChangeBtn").addEventListener("click", () => {
+  openPrompt("Change password", "Enter the current password.", "Continue", "Current password",
+    (oldPassword) => {
+      openPrompt("Change password", "Now the new one.", "Change", "New password",
+        async (newPassword) => {
+          try {
+            const code = await invoke("vault_change", { old: oldPassword, new: newPassword });
+            await refreshVault();
+            showRecoveryCode(code);
+          } catch (e) {
+            toast(formatError(e), "err");
+          }
+        }, "password");
+    }, "password");
+});
+
+async function startApp() {
+  await refreshVault();
+  await loadSettings();
+  await refresh();
+  showView("picker");
+}
+
+async function boot() {
+  paintBackdrop();
+  await refreshVault();
+  if (vault.enabled && !vault.unlocked) {
+    showLock();
+    return;
+  }
+  await startApp();
+}
+
+boot();
+
 invoke("app_version")
   .then((v) => {
     versionText.textContent = `v${v}`;

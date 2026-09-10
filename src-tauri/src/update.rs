@@ -1,9 +1,3 @@
-// Update check against the repo's GitHub releases.
-//
-// Read-only and opt-in: it asks GitHub for the latest release tag and compares it
-// to the running version. It never downloads or installs anything — the user is
-// handed the release page and decides. That keeps the whole feature to one GET
-// with no elevation, no background writer, and nothing to roll back.
 
 use serde::Serialize;
 
@@ -19,8 +13,6 @@ pub struct UpdateInfo {
     pub url: String,
 }
 
-/// Compares two dotted versions numerically, so 0.10.0 correctly beats 0.9.0 —
-/// which a string comparison gets backwards.
 fn is_newer(latest: &str, current: &str) -> bool {
     let parse = |v: &str| -> Vec<u64> {
         v.trim_start_matches('v')
@@ -40,7 +32,6 @@ fn is_newer(latest: &str, current: &str) -> bool {
 
 pub fn check(current: &str) -> Result<UpdateInfo, String> {
     let response = ureq::get(RELEASES_API)
-        // GitHub rejects requests with no User-Agent.
         .set("User-Agent", "nfa.pub-tool")
         .set("Accept", "application/vnd.github+json")
         .timeout(std::time::Duration::from_secs(10))
@@ -88,7 +79,6 @@ mod tests {
 
     #[test]
     fn compares_numerically_not_lexically() {
-        // The case a string compare gets wrong: "0.10.0" < "0.9.0" as text.
         assert!(is_newer("0.10.0", "0.9.0"));
         assert!(!is_newer("0.9.0", "0.10.0"));
     }

@@ -30,6 +30,19 @@
 
       <main class="stage">
         <!-- ---------- Account picker ---------- -->
+        <section class="view hidden" id="lockView">
+          <div class="lock-panel">
+            <svg class="lock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10.5" width="16" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg>
+            <h2 class="whos-playing" id="lockTitle">Locked</h2>
+            <input type="password" class="text-input" id="lockInput" placeholder="Password" spellcheck="false" autocomplete="current-password" aria-label="Password" />
+            <div class="cta-row">
+              <button id="lockUnlock" class="lbtn lbtn-primary" type="button">Unlock</button>
+            </div>
+            <div id="lockError" class="form-msg"></div>
+            <button class="flink" id="lockRecovery" type="button">Use a recovery code</button>
+          </div>
+        </section>
+
         <section class="view" id="pickerView">
           <div class="cached-users">
             <h2 class="whos-playing" id="pickerHeadline">Who&#39;s playing?</h2>
@@ -190,6 +203,21 @@
               </span>
             </label>
 
+            <div class="pane-title pane-title-sub">Password</div>
+            <div class="chip-row">
+              <span class="chip-label" id="vaultState">Off</span>
+              <div class="chips">
+                <button class="chip" id="vaultToggleBtn" type="button">Set a password</button>
+                <button class="chip hidden" id="vaultChangeBtn" type="button">Change</button>
+              </div>
+            </div>
+            <span class="check-desc">
+              Encrypts your saved login codes with a key derived from the password, and asks for it
+              on every start. Without the password the codes cannot be read &mdash; not by this app,
+              and not by anything else on the PC. You get a recovery code when you set it; keep it
+              somewhere safe, because losing both means losing the codes.
+            </span>
+
             <div class="pane-title pane-title-sub">Counter-Strike 2</div>
             <div class="field key-row">
               <div class="field-head">
@@ -280,6 +308,9 @@
           </button>
         </div>
         <div class="footlinks-right">
+          <button class="ficon hidden" id="lockBtn" type="button" data-tip="Lock now" aria-label="Lock now">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10.5" width="16" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg>
+          </button>
           <button class="ficon" id="settingsBtn" type="button" data-tip="Settings" aria-label="Settings">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1" /><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a1.9 1.9 0 1 1-2.7 2.7l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-1 1.47V21a1.9 1.9 0 1 1-3.8 0v-.1a1.6 1.6 0 0 0-1.05-1.47 1.6 1.6 0 0 0-1.77.32l-.06.06a1.9 1.9 0 1 1-2.7-2.7l.06-.06a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.47-1H3a1.9 1.9 0 1 1 0-3.8h.1a1.6 1.6 0 0 0 1.47-1.05 1.6 1.6 0 0 0-.32-1.77l-.06-.06a1.9 1.9 0 1 1 2.7-2.7l.06.06a1.6 1.6 0 0 0 1.77.32H9a1.6 1.6 0 0 0 1-1.47V3a1.9 1.9 0 1 1 3.8 0v.1a1.6 1.6 0 0 0 1 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a1.9 1.9 0 1 1 2.7 2.7l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47 1H21a1.9 1.9 0 1 1 0 3.8h-.1a1.6 1.6 0 0 0-1.47 1z" /></svg>
           </button>
@@ -298,6 +329,7 @@
       <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
         <div class="dialog-title" id="confirmTitle">Confirm</div>
         <p class="dialog-text" id="confirmText"></p>
+        <input class="text-input hidden" id="confirmInput" spellcheck="false" autocomplete="off" autocapitalize="off" />
         <div class="btn-row">
           <button class="lbtn lbtn-secondary" data-action="close-confirm" type="button">Cancel</button>
           <button class="lbtn lbtn-danger" id="confirmYes" type="button">Confirm</button>

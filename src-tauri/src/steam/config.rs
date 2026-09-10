@@ -58,13 +58,6 @@ fn inject_account_into_config(path: &Path, username: &str, steamid: &str) -> Res
     Ok(())
 }
 
-/// Steam keeps showing its own account picker at startup while
-/// `InstallConfigStore/Software/Valve/Steam/AlwaysShowUserChooser` is `"1"` —
-/// which defeats the point of switching from here, since you end up choosing the
-/// account twice. Force it off whenever we hand Steam an account.
-///
-/// Best effort: a config.vdf we can't make sense of is left alone rather than
-/// mangled, since `AutoLoginUser` alone still gets most people signed straight in.
 pub(crate) fn disable_user_chooser(path: &Path) -> Result<(), String> {
     let content = fs::read_to_string(path).map_err(|_| "Failed to read config.vdf")?;
     if let Some(updated) = with_user_chooser_off(&content) {
@@ -73,9 +66,6 @@ pub(crate) fn disable_user_chooser(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Returns the patched file, or `None` when it is already off or there is no
-/// Steam block to patch. Splices by byte range so the rest of the file — including
-/// its line endings — is preserved exactly.
 fn with_user_chooser_off(content: &str) -> Option<String> {
     const KEY: &str = "AlwaysShowUserChooser";
 
@@ -114,8 +104,6 @@ fn with_user_chooser_off(content: &str) -> Option<String> {
     Some(out)
 }
 
-/// Locates the `{` that opens `Valve` -> `Steam`, returning where that line starts
-/// and the indentation its children should use.
 fn find_steam_block_brace(content: &str) -> Option<(usize, String)> {
     let mut offset = 0usize;
     let mut in_valve = false;
@@ -498,12 +486,6 @@ fn write_local_vdf(username: &str, token: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Every `"<crc>" "<hex blob>"` pair inside `local.vdf`'s ConnectCache block.
-///
-/// These are the tokens for accounts already signed in on this PC, which is what
-/// makes importing them possible with no login codes at all. The crc key is
-/// `crc32(account_name)` — see [`compute_crc32`] — so the caller resolves names
-/// from `loginusers.vdf` and matches by hash.
 pub(crate) fn read_connect_cache(content: &str) -> Vec<(String, String)> {
     let mut entries = Vec::new();
     let mut in_connect_cache = false;
@@ -557,7 +539,6 @@ mod connect_cache_tests {
         );
     }
 
-    /// The block closes before `"Rate"`, so keys after it must not leak in.
     #[test]
     fn stops_at_the_end_of_the_block() {
         assert!(!read_connect_cache(LOCAL_VDF)
@@ -571,8 +552,6 @@ mod connect_cache_tests {
         assert!(read_connect_cache("").is_empty());
     }
 
-    /// A round trip through the writer proves the reader agrees with the format we
-    /// actually produce, not just with a fixture.
     #[test]
     fn reads_back_what_the_writer_wrote() {
         let written = create_new_local_vdf("abc1", "0011ff");
@@ -662,10 +641,6 @@ pub(crate) fn apply_localconfig_settings(
         .unwrap_or_else(|_| minimal_localconfig_template(&steamid3, persona_state));
 
     content = patch_persona_prefs(&content, &steamid3, persona_state);
-    // Steam reads the desired state from `friends`, and the WebStorage blob above
-    // is what the friends UI shows. Writing only one of them gives an account that
-    // signs in Online but *displays* as Invisible, or the reverse. Scoped to the
-    // `friends` block so a same-named key elsewhere in the file is left alone.
     content = set_nested_key(&content, &["friends"], "PersonaStateDesired", &persona_state.to_string());
     content = set_nested_key(&content, &["friends"], "SignIntoFriends", "1");
 
@@ -756,11 +731,6 @@ fn patch_friends_notifications(content: &str) -> String {
     patched
 }
 
-// Clear only the cached login tokens (%LOCALAPPDATA%\Steam\local.vdf ConnectCache),
-// which signs Steam out on this PC. Deliberately does NOT touch config.vdf /
-// loginusers.vdf or delete the rest of the Steam local cache (htmlcache, logs,
-// depotcache, …) — the old "delete the whole folder" behaviour was destructive and
-// left saved accounts unrecoverable.
 pub(crate) fn clear_login_cache(steam_base_dir: &Path) -> Result<(), String> {
     let local_vdf = steam_base_dir.join("local.vdf");
     if local_vdf.exists() {
@@ -788,11 +758,9 @@ mod user_chooser_tests {
     fn inserts_the_key_when_absent() {
         let out = with_user_chooser_off(CONFIG).expect("should patch");
         assert!(out.contains("\"AlwaysShowUserChooser\"\t\t\"0\""));
-        // Inserted inside the Steam block, above Accounts.
         let key = out.find("AlwaysShowUserChooser").unwrap();
         let accounts = out.find("Accounts").unwrap();
         assert!(key < accounts);
-        // Nothing else was disturbed.
         assert!(out.contains("\"InstallConfigStore\""));
     }
 

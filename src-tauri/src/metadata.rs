@@ -1,9 +1,3 @@
-// Per-account metadata the user assigns: colour tag, cooldown, last-used time.
-//
-// Kept apart from `steam/tokens.rs` on purpose. That store holds credentials and is
-// DPAPI-encrypted; this one holds preferences, is plain JSON, and losing it costs
-// the user nothing but their tags. Mixing them would mean either encrypting data
-// that doesn't need it or weakening the file that does.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -12,26 +6,19 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-/// The seven presets. Stored as names rather than hex so the palette can be
-/// restyled later without rewriting everyone's saved tags.
 pub const COLORS: [&str; 6] = ["red", "amber", "green", "blue", "purple", "gray"];
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AccountMeta {
-    /// One of [`COLORS`], or empty for no tag.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub color: String,
-    /// Unix seconds when a competitive cooldown ends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cooldown_until: Option<i64>,
-    /// Unix seconds of the last successful sign-in through this app.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_used: Option<i64>,
 }
 
 impl AccountMeta {
-    /// True while a cooldown is still running. A cooldown in the past is treated
-    /// as absent everywhere, so nothing has to sweep expired entries.
     pub fn on_cooldown(&self, now: i64) -> bool {
         self.cooldown_until.is_some_and(|until| until > now)
     }
@@ -41,8 +28,6 @@ impl AccountMeta {
     }
 }
 
-/// Compact remaining-time label ("45m", "6h", "2d") for the tray menu, where
-/// there is no room for anything longer.
 pub fn format_remaining(seconds: i64) -> String {
     let seconds = seconds.max(0);
     if seconds < 60 {
@@ -92,8 +77,6 @@ fn write(map: &MetaMap) -> Result<(), String> {
     fs::write(&path, json).map_err(|e| format!("Failed to write metadata: {e}"))
 }
 
-/// Applies `edit` to one account's metadata and saves. Entries that end up back at
-/// their defaults are dropped, so clearing a tag doesn't leave litter behind.
 fn update<F: FnOnce(&mut AccountMeta)>(steamid: &str, edit: F) -> Result<(), String> {
     let mut map = load();
     let entry = map.entry(steamid.to_string()).or_default();
@@ -112,13 +95,10 @@ pub fn set_color(steamid: &str, color: &str) -> Result<(), String> {
 }
 
 pub fn set_cooldown(steamid: &str, until: Option<i64>) -> Result<(), String> {
-    // A cooldown already in the past is the same as none; store it as none so the
-    // file doesn't accumulate dead timestamps.
     let until = until.filter(|u| *u > now_unix());
     update(steamid, |m| m.cooldown_until = until)
 }
 
-/// Best-effort: recording the timestamp must never fail a sign-in.
 pub fn touch_last_used(steamid: &str) {
     let _ = update(steamid, |m| m.last_used = Some(now_unix()));
 }
@@ -153,7 +133,6 @@ mod tests {
         assert_eq!(format_remaining(23 * 3600), "23h");
         assert_eq!(format_remaining(24 * 3600), "1d");
         assert_eq!(format_remaining(181 * 24 * 3600), "181d");
-        // A cooldown that expired between render and read must not print "-1h".
         assert_eq!(format_remaining(-500), "<1m");
     }
 
@@ -181,8 +160,6 @@ mod tests {
 
     #[test]
     fn unknown_colours_are_rejected() {
-        // Guards against the frontend sending an arbitrary string that would then
-        // render as an unstyled tile.
         assert!(!COLORS.contains(&"chartreuse"));
         assert!(COLORS.contains(&"amber"));
     }

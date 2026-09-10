@@ -2,10 +2,6 @@ use windows::Win32::Security::Cryptography::{
     CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB,
 };
 
-/// Both `Crypt*Data` calls hand back a `LocalAlloc`'d buffer the caller must free.
-///
-/// # Safety
-/// `p` must be a pointer DPAPI wrote into a `CRYPT_INTEGER_BLOB`, freed once.
 unsafe fn local_free(p: *mut u8) {
     #[link(name = "kernel32")]
     unsafe extern "system" {
@@ -28,15 +24,8 @@ fn from_hex(hex: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
-// Namespaced so a blob from our store can never be mistaken for Steam's own
-// ConnectCache format, which uses different entropy and a description blob.
 const ENTROPY_PREFIX: &str = "nfa.pub tool/token/v1/";
 
-/// DPAPI-protects a token for the current Windows user on this machine, so a
-/// copied `accounts.json` is inert on another PC or under another user account.
-///
-/// `tag` (the SteamID) is folded into the entropy, which additionally pins each
-/// blob to its own record — swapping two `token_enc` values makes both fail.
 pub(crate) fn dpapi_protect(plain: &str, tag: &str) -> Result<String, String> {
     let entropy_string = format!("{ENTROPY_PREFIX}{tag}");
     let data = plain.as_bytes();
@@ -70,9 +59,6 @@ pub(crate) fn dpapi_protect(plain: &str, tag: &str) -> Result<String, String> {
     }
 }
 
-/// Reverses [`dpapi_protect`]. Fails (rather than returning junk) when the blob
-/// was written by a different Windows user, on a different machine, or for a
-/// different SteamID.
 pub(crate) fn dpapi_unprotect(hex: &str, tag: &str) -> Result<String, String> {
     let blob = from_hex(hex).ok_or_else(|| "Token blob is not valid hex.".to_string())?;
     let entropy_string = format!("{ENTROPY_PREFIX}{tag}");
@@ -106,7 +92,6 @@ pub(crate) fn dpapi_unprotect(hex: &str, tag: &str) -> Result<String, String> {
     }
 }
 
-// Steam formats the CRC32 key as hex with leading zeros stripped and a trailing "1".
 pub(crate) fn compute_crc32(data: &str) -> String {
     let crc32_value = crc32fast::hash(data.as_bytes());
     let hex = format!("{crc32_value:08x}");
@@ -118,7 +103,6 @@ pub(crate) fn compute_crc32(data: &str) -> String {
     }
 }
 
-// DPAPI (CryptProtectData) with the account name as entropy and Steam's "BObfuscateBuffer" description blob.
 pub(crate) fn steam_encrypt(token: &str, account_name: &str) -> Result<String, String> {
     let data_to_encrypt = token.as_bytes();
     let byte_string =
@@ -163,12 +147,6 @@ pub(crate) fn steam_encrypt(token: &str, account_name: &str) -> Result<String, S
     }
 }
 
-/// Reverses [`steam_encrypt`] — reads a token back out of Steam's own ConnectCache.
-///
-/// Same entropy (the account name) and the `CRYPTPROTECT_UI_FORBIDDEN` flag, since
-/// this runs on a background thread with no window to host a prompt. Fails for an
-/// account that belongs to a different Windows user, which is expected and not an
-/// error worth surfacing — the caller just skips it.
 pub(crate) fn steam_decrypt(hex: &str, account_name: &str) -> Result<String, String> {
     let blob = from_hex(hex).ok_or_else(|| "ConnectCache value is not hex.".to_string())?;
     let entropy_bytes = account_name.as_bytes();
@@ -189,7 +167,6 @@ pub(crate) fn steam_decrypt(hex: &str, account_name: &str) -> Result<String, Str
 
         let plain = std::slice::from_raw_parts(out.pbData, out.cbData as usize).to_vec();
         local_free(out.pbData);
-        // Steam stores a NUL-terminated string; trim it or the JWT check fails.
         let plain = plain.split(|b| *b == 0).next().unwrap_or(&plain).to_vec();
         String::from_utf8(plain).map_err(|_| "Decrypted value is not UTF-8.".to_string())
     }
@@ -201,8 +178,6 @@ mod tests {
 
     #[test]
     fn steam_blob_round_trips() {
-        // Confirms our decrypt actually reverses the encrypt Steam's cache uses,
-        // including the entropy and the NUL trim.
         let token = "eyJhbGciOiJFZERTQSJ9.cGF5bG9hZA.c2ln";
         let blob = steam_encrypt(token, "archie").expect("encrypt");
         assert_eq!(steam_decrypt(&blob, "archie").expect("decrypt"), token);

@@ -263,15 +263,13 @@ fn is_jwt_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '=')
 }
 
-/// The token's `exp` claim, in unix seconds. `None` when the token has no expiry
-/// or cannot be parsed — callers must treat that as "don't know", never as expired,
-/// or an unreadable token would get pruned out from under the user.
 pub fn token_expiry(jwt: &str) -> Option<i64> {
     let payload = decode_jwt_payload(jwt).ok()?;
     let json: serde_json::Value = serde_json::from_slice(&payload).ok()?;
     json.get("exp")?.as_i64()
 }
 
+// An unreadable expiry is NOT expired - treating it as such would prune live accounts.
 pub(crate) fn token_expired(jwt: &str, now: i64) -> bool {
     token_expiry(jwt).is_some_and(|exp| exp <= now)
 }
@@ -364,20 +362,16 @@ mod tests {
 
     #[test]
     fn expiry_is_read_from_the_payload() {
-        // {"exp":1700000000,"sub":"7656119"} — a token that carries an expiry.
         let jwt = "eyJhbGciOiJFZERTQSJ9.eyJleHAiOjE3MDAwMDAwMDAsInN1YiI6Ijc2NTYxMTkifQ.sig";
         assert_eq!(token_expiry(jwt), Some(1_700_000_000));
         assert!(token_expired(jwt, 1_700_000_001));
         assert!(!token_expired(jwt, 1_699_999_999));
     }
 
-    /// An unreadable token must never be reported as expired, or pruning would
-    /// silently delete accounts it merely failed to parse.
     #[test]
     fn unreadable_tokens_are_never_expired() {
         assert_eq!(token_expiry("not-a-jwt"), None);
         assert!(!token_expired("not-a-jwt", i64::MAX));
-        // Valid shape, payload has no `exp`.
         let no_exp = "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiI3NjU2MTE5In0.sig";
         assert_eq!(token_expiry(no_exp), None);
         assert!(!token_expired(no_exp, i64::MAX));

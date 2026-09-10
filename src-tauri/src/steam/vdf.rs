@@ -75,7 +75,6 @@ pub(crate) fn replace_vdf_key_line(content: &str, key: &str, value: &str) -> Str
     out
 }
 
-/// `path` is relative to the file's single top-level block, so drop that frame.
 fn inner_stack(stack: &[String]) -> &[String] {
     stack.get(1..).unwrap_or(&[])
 }
@@ -84,23 +83,13 @@ fn is_prefix_of(stack: &[String], path: &[&str]) -> bool {
     stack.len() <= path.len() && stack.iter().zip(path).all(|(a, b)| a == b)
 }
 
-/// Sets `key` inside a nested block, creating whatever part of `path` is missing.
-///
-/// Steam writes section names and their opening brace on separate lines, so this
-/// tracks a stack of names rather than trying to match a pattern. Everything it
-/// does not touch is copied through verbatim — the file is full of settings we
-/// have no business rewriting.
-///
-/// `path` is relative to the top-level block, e.g.
-/// `["Software", "Valve", "Steam", "apps", "730"]` for `UserLocalConfigStore`.
+// `path` is relative to the file's single top-level block. Untouched lines are copied verbatim.
 pub(crate) fn set_nested_key(content: &str, path: &[&str], key: &str, value: &str) -> String {
     let mut stack: Vec<String> = Vec::new();
     let mut pending: Option<String> = None;
     let mut replaced = false;
     let mut out: Vec<String> = Vec::new();
 
-    // The deepest prefix of `path` that already exists, and where its block ends —
-    // that is where anything missing has to be grafted on.
     let mut best_depth = 0usize;
     let mut best_close: Option<usize> = None;
 
@@ -220,7 +209,6 @@ mod nested_key_tests {
         let out = set_nested_key(&with_existing_key(), &APPS_PATH, "LaunchOptions", "-novid");
         assert!(out.contains("\"LaunchOptions\"\t\t\"-novid\""));
         assert!(!out.contains("-old"));
-        // Siblings must survive untouched.
         assert!(out.contains("\"LastPlayed\"\t\t\"1717388325\""));
     }
 
@@ -232,7 +220,6 @@ mod nested_key_tests {
         assert!(out.contains("\"LastPlayed\""));
     }
 
-    /// The common case on a fresh account: nothing below `Steam` exists yet.
     #[test]
     fn creates_the_missing_chain() {
         let src = "\"UserLocalConfigStore\"\n{\n\t\"friends\"\n\t{\n\t\t\"SignIntoFriends\"\t\t\"1\"\n\t}\n}\n";
@@ -242,7 +229,6 @@ mod nested_key_tests {
         }
         assert!(out.contains("\"LaunchOptions\"\t\t\"-novid\""));
         assert!(out.contains("\"SignIntoFriends\"\t\t\"1\""));
-        // Braces must still balance, or Steam discards the whole file.
         assert_eq!(
             out.matches('{').count(),
             out.matches('}').count(),
@@ -250,7 +236,6 @@ mod nested_key_tests {
         );
     }
 
-    /// Re-running must be a no-op, not a second copy of the chain.
     #[test]
     fn is_idempotent() {
         let src = "\"UserLocalConfigStore\"\n{\n}\n";
@@ -260,7 +245,6 @@ mod nested_key_tests {
         assert_eq!(twice.matches("\"730\"").count(), 1);
     }
 
-    /// A same-named key in a different branch must not be mistaken for ours.
     #[test]
     fn ignores_the_same_key_elsewhere() {
         let src = "\"UserLocalConfigStore\"\n{\n\t\"apps\"\n\t{\n\t\t\"LaunchOptions\"\t\t\"-decoy\"\n\t}\n}\n";

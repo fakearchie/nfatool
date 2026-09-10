@@ -28,8 +28,6 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         let w = window.clone();
         let handle = app.clone();
         window.on_window_event(move |event| {
-            // Save before hiding: a hidden window reports a position we don't want
-            // to persist, and this is the last moment it is still on screen.
             if matches!(
                 event,
                 tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Moved(_)
@@ -94,8 +92,6 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
                 } else {
                     truncate_name(acc.display_name(), 30)
                 };
-                // The tray is where you switch without opening the window, so it is
-                // exactly where you need to be told an account is still cooling down.
                 if let Some(m) = meta.get(&acc.steamid) {
                     if m.on_cooldown(now) {
                         let left = m.cooldown_until.unwrap_or(now) - now;
@@ -146,8 +142,6 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
                     let _ = rebuild(app);
                     let _ = app.emit("accounts-changed", ());
                     show_window(app);
-                    // The message names the account; streamer mode exists to keep
-                    // that off the screen.
                     let msg = if crate::settings::load_settings().streamer_mode {
                         "Account imported.".to_string()
                     } else {
@@ -171,8 +165,6 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
                             crate::metadata::touch_last_used(&account.steamid);
                             let _ = rebuild(app);
                             let _ = app.emit("accounts-changed", ());
-                            // Send the id, not a sentence: only the frontend knows
-                            // whether streamer mode should mask the name.
                             let _ = app.emit("signed-in", account.steamid.clone());
                         }
                         Err(err) => {

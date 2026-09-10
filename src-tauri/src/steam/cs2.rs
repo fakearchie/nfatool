@@ -1,9 +1,3 @@
-// Counter-Strike 2 per-account tooling.
-//
-// Everything here edits files under Steam's `userdata/<steamid3>/` tree and must
-// run while Steam is closed — the caller already stopped it. All of it is
-// best-effort: none of these are worth failing a sign-in over, so the entry point
-// collects problems and returns them for logging rather than propagating.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,7 +8,6 @@ use crate::settings::AppSettings;
 
 pub(crate) const APPID: &str = "730";
 
-/// `UserLocalConfigStore/Software/Valve/Steam/apps/730`, where per-game settings live.
 const APP_PATH: [&str; 5] = ["Software", "Valve", "Steam", "apps", APPID];
 
 fn userdata_dir(steam_path: &Path) -> PathBuf {
@@ -25,13 +18,9 @@ fn game_config_dir(steam_path: &Path, steamid3: &str) -> PathBuf {
     userdata_dir(steam_path).join(steamid3).join(APPID)
 }
 
-/// Applies every CS2 preference that lives in `localconfig.vdf` in a single
-/// read-modify-write, rather than reopening the file once per setting.
 fn patch_localconfig(steam_path: &Path, steamid3: &str, settings: &AppSettings) -> Result<(), String> {
     let path = localconfig_path(steam_path, steamid3);
     let Ok(mut content) = fs::read_to_string(&path) else {
-        // No localconfig yet means Steam has never signed this account in here;
-        // `apply_localconfig_settings` creates it, and we run after that.
         return Ok(());
     };
 
@@ -56,8 +45,6 @@ fn patch_localconfig(steam_path: &Path, steamid3: &str, settings: &AppSettings) 
     Ok(())
 }
 
-/// Marks every subscribed Workshop item as `disabled_locally`, so signing in does
-/// not kick off a re-download of maps this account never asked for.
 fn suppress_workshop(steam_path: &Path, steamid3: &str) -> Result<(), String> {
     let path = userdata_dir(steam_path)
         .join(steamid3)
@@ -87,11 +74,6 @@ fn suppress_workshop(steam_path: &Path, steamid3: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Copies one account's CS2 settings tree (video config, cfg/, crosshairs) onto
-/// another, so an alt inherits the setup instead of starting from Valve's defaults.
-///
-/// Skips silently when source and target are the same account, or when the source
-/// has no CS2 data — neither is an error the user needs to hear about.
 fn copy_game_config(steam_path: &Path, from3: &str, to3: &str) -> Result<u32, String> {
     if from3 == to3 {
         return Ok(0);
@@ -117,15 +99,12 @@ fn copy_dir(from: &Path, to: &Path) -> Result<u32, String> {
                 fs::copy(&src, &dst).map_err(|e| format!("{}: {e}", src.display()))?;
                 copied += 1;
             }
-            // Symlinks and anything else are left alone rather than followed.
             _ => {}
         }
     }
     Ok(copied)
 }
 
-/// Runs the CS2 steps for the account being signed in. Returns the problems it hit
-/// so the caller can log them; an empty vec means everything applied.
 pub(crate) fn apply_on_login(
     steamid64: &str,
     steam_path: &Path,
@@ -200,7 +179,6 @@ mod tests {
         assert!(out.contains("\"timeupdated\"\t\t\"1717388325\""));
     }
 
-    /// Copying an account onto itself would walk a directory while writing into it.
     #[test]
     fn copying_to_the_same_account_is_a_no_op() {
         let dir = std::env::temp_dir().join("nfatool-cs2-selfcopy");
@@ -230,8 +208,6 @@ mod tests {
 
     #[test]
     fn no_settings_means_no_write() {
-        // With no launch options and remote play left alone there is nothing to do,
-        // so a missing localconfig must not be treated as a failure.
         let dir = std::env::temp_dir().join("nfatool-cs2-nowrite");
         assert!(patch_localconfig(&dir, "123", &settings_with("", false)).is_ok());
     }

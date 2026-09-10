@@ -8,10 +8,8 @@ use winreg::RegKey;
 
 use crate::settings::AppSettings;
 
-// Prevents a console window flashing when spawning taskkill.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-// Lets Steam run independently of this app.
 const DETACHED_PROCESS: u32 = 0x0000_0008;
 
 const ERR_STEAM_CLOSED: &str = "C000009A";
@@ -23,19 +21,12 @@ fn silent_command(program: impl AsRef<OsStr>) -> Command {
 }
 
 pub(crate) fn stop_steam() -> Result<(), String> {
-    // Both kills are best-effort. taskkill's failure text is localised — a German
-    // Windows reports "wurde nicht gefunden" for an already-dead process — so we
-    // never parse stderr. Whether Steam is actually gone is the only thing that
-    // matters, and we check that directly.
     kill_steam_by_pid();
     kill_steam_by_name();
     if wait_until_gone() {
         return Ok(());
     }
 
-    // Surviving a normal kill means Steam is running elevated. Rather than make
-    // this whole app require administrator — which breaks WebView2 — escalate
-    // just the kill. The user sees one UAC prompt, and only in this case.
     kill_steam_elevated();
     if wait_until_gone() {
         return Ok(());
@@ -55,8 +46,6 @@ fn wait_until_gone() -> bool {
     false
 }
 
-/// Runs taskkill itself elevated via the shell's "runas" verb. Declining the UAC
-/// prompt simply leaves Steam running, which the caller reports as a plain error.
 fn kill_steam_elevated() {
     let script = "$ErrorActionPreference='SilentlyContinue'; \
 foreach ($p in 'steam.exe','steamwebhelper.exe') { \
@@ -68,8 +57,7 @@ Start-Process -FilePath 'taskkill' -ArgumentList '/F','/IM',$p,'/T' \
         .output();
 }
 
-/// Image names are not localised, so looking for "steam.exe" in tasklist output
-/// works on any Windows language.
+// Never parse taskkill/tasklist prose: it is localised (German Windows broke this).
 fn steam_is_running() -> bool {
     for process in ["steam.exe", "steamwebhelper.exe"] {
         let running = silent_command("tasklist")
@@ -133,8 +121,6 @@ pub(crate) fn launch_steam(steam_path: &str, settings: &AppSettings) -> Result<(
         cmd.arg("-silent");
     }
     if settings.launch_cs2_on_login {
-        // Steam queues the launch until it has finished signing in, so this works
-        // on the same invocation rather than needing a second, timed one.
         cmd.arg("-applaunch").arg(crate::steam::cs2::APPID);
     }
     cmd.creation_flags(DETACHED_PROCESS)

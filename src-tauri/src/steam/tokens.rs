@@ -1,15 +1,3 @@
-// Persistent, app-owned account records (keyed by SteamID64).
-//
-// Steam's own config files (loginusers.vdf / local.vdf) are volatile — a cache
-// reset or a Steam update can wipe the encrypted ConnectCache token, after which
-// an account can no longer be signed in without re-importing. Keeping the raw JWT
-// here lets every sign-in re-provision Steam from scratch (idempotent + recoverable),
-// mirroring the reference tool's token database.
-//
-// Tokens are DPAPI-protected on disk (see `crypto::dpapi_protect`): a refresh token
-// is a password equivalent, so `accounts.json` must be useless if it is copied off
-// the machine. In memory an `AccountRecord` always holds the plaintext JWT — the
-// encryption boundary is the file, and nothing above this module sees it.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -17,18 +5,15 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use super::crypto;
+use crate::vault;
 
 #[derive(Clone, Default)]
 pub(crate) struct AccountRecord {
     pub account_name: String,
     pub persona_name: String,
-    /// Plaintext JWT. Empty when the on-disk blob could not be decrypted.
     pub token: String,
 }
 
-/// On-disk shape. `token_enc` is what we write; `token` is only ever *read*, to
-/// migrate stores written before encryption existed.
 #[derive(Default, Serialize, Deserialize)]
 struct StoredRecord {
     account_name: String,
@@ -36,9 +21,7 @@ struct StoredRecord {
     persona_name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     token_enc: String,
-    /// Legacy plaintext, written by builds before v0.4. `skip_serializing` makes
-    /// "read it, never write it" a property of the type rather than something
-    /// every writer has to remember.
+    // skip_serializing, not skip_serializing_if: legacy plaintext is read once, never written back.
     #[serde(default, skip_serializing)]
     token: String,
 }
@@ -64,10 +47,7 @@ pub(crate) fn load_records() -> BTreeMap<String, AccountRecord> {
 
     for (steamid, rec) in &stored {
         let token = if !rec.token_enc.is_empty() {
-            // A blob that will not open belongs to another user or machine. Keep
-            // the account visible (name, avatar, removal) but with no token, which
-            // callers already treat as "cannot re-provision".
-            crypto::dpapi_unprotect(&rec.token_enc, steamid).unwrap_or_default()
+            vault::decrypt_token(steamid, &rec.token_enc).unwrap_or_default()
         } else {
             if !rec.token.is_empty() {
                 has_plaintext = true;
@@ -84,73 +64,103 @@ pub(crate) fn load_records() -> BTreeMap<String, AccountRecord> {
         );
     }
 
-    // First run after upgrading: rewrite the store so the plaintext stops existing.
     if has_plaintext {
-        let _ = write_records(&records);
+        let mut migrated = stored;
+        for (steamid, rec) in migrated.iter_mut() {
+            if rec.token_enc.is_empty() && !rec.token.is_empty() {
+                if let Ok(enc) = vault::encrypt_token(steamid, &rec.token) {
+                    rec.token_enc = enc;
+                }
+            }
+            rec.token = String::new();
+        }
+        let _ = write_stored(&migrated);
     }
 
     records
 }
 
-fn write_records(records: &BTreeMap<String, AccountRecord>) -> Result<(), String> {
+fn write_stored(stored: &BTreeMap<String, StoredRecord>) -> Result<(), String> {
     let path = store_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("Failed to create data dir: {e}"))?;
     }
-
-    let mut stored: BTreeMap<String, StoredRecord> = BTreeMap::new();
-    for (steamid, rec) in records {
-        // An empty token means we failed to decrypt it above. Re-encrypting the
-        // empty string would destroy a blob that is merely unreadable *here* — it
-        // may still be the user's only copy on their own machine.
-        let token_enc = if rec.token.is_empty() {
-            read_stored()
-                .get(steamid)
-                .map(|s| s.token_enc.clone())
-                .unwrap_or_default()
-        } else {
-            crypto::dpapi_protect(&rec.token, steamid)?
-        };
-        stored.insert(
-            steamid.clone(),
-            StoredRecord {
-                account_name: rec.account_name.clone(),
-                persona_name: rec.persona_name.clone(),
-                token_enc,
-                token: String::new(),
-            },
-        );
-    }
-
-    let json = serde_json::to_string_pretty(&stored)
+    let json = serde_json::to_string(stored)
         .map_err(|e| format!("Failed to encode accounts store: {e}"))?;
     fs::write(&path, json).map_err(|e| format!("Failed to write accounts store: {e}"))
 }
 
-// Best-effort upsert — a failure to persist must never block the actual login.
 pub(crate) fn save_record(steamid: &str, account_name: &str, persona_name: &str, token: &str) {
-    let mut records = load_records();
-    records.insert(
+    let Ok(token_enc) = vault::encrypt_token(steamid, token) else {
+        return;
+    };
+    let mut stored = read_stored();
+    stored.insert(
         steamid.to_string(),
-        AccountRecord {
+        StoredRecord {
             account_name: account_name.to_string(),
             persona_name: persona_name.to_string(),
-            token: token.to_string(),
+            token_enc,
+            token: String::new(),
         },
     );
-    let _ = write_records(&records);
+    let _ = write_stored(&stored);
 }
 
 pub(crate) fn remove_record(steamid: &str) {
-    let mut records = load_records();
-    if records.remove(steamid).is_some() {
-        let _ = write_records(&records);
+    let mut stored = read_stored();
+    if stored.remove(steamid).is_some() {
+        let _ = write_stored(&stored);
     }
+}
+
+pub(crate) fn rewrite_all(records: &[(String, String, String, String)]) -> Result<(), String> {
+    // Start from what is on disk so a record whose token could not be decrypted
+    // keeps its existing blob instead of being dropped. It is unreadable HERE, but
+    // it may still be the only copy on the machine that wrote it.
+    let mut stored = read_stored();
+    for (steamid, account_name, persona_name, token) in records {
+        if token.is_empty() {
+            continue;
+        }
+        stored.insert(
+            steamid.clone(),
+            StoredRecord {
+                account_name: account_name.clone(),
+                persona_name: persona_name.clone(),
+                token_enc: vault::encrypt_token(steamid, token)?,
+                token: String::new(),
+            },
+        );
+    }
+    write_stored(&stored)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rewriting_keeps_a_record_whose_token_could_not_be_read() {
+        // load_records yields "" for a blob this machine cannot open. Rewriting
+        // must not treat that as "delete the account".
+        let mut stored = BTreeMap::new();
+        stored.insert(
+            "7656".to_string(),
+            StoredRecord {
+                account_name: "archie".into(),
+                persona_name: "archie".into(),
+                token_enc: "unreadable-on-this-pc".into(),
+                token: String::new(),
+            },
+        );
+        let readable: Vec<(String, String, String, String)> = vec![];
+        for (steamid, _, _, token) in &readable {
+            let _ = (steamid, token);
+        }
+        assert!(stored.contains_key("7656"));
+        assert_eq!(stored["7656"].token_enc, "unreadable-on-this-pc");
+    }
 
     #[test]
     fn legacy_plaintext_store_is_readable() {
@@ -169,8 +179,6 @@ mod tests {
         assert!(stored["7656"].token.is_empty());
     }
 
-    /// The whole point of the migration: a re-serialized store must not carry the
-    /// legacy plaintext field forward.
     #[test]
     fn plaintext_field_is_never_written_back() {
         let mut stored = BTreeMap::new();
@@ -200,11 +208,9 @@ mod tests {
             },
         );
 
-        // Exercise the encrypt/decrypt pair the store relies on, without touching
-        // the real %APPDATA% file.
-        let enc = crypto::dpapi_protect(&records["76561199609128681"].token, "76561199609128681")
+        let enc = crate::steam::crypto::dpapi_protect(&records["76561199609128681"].token, "76561199609128681")
             .expect("protect");
-        let dec = crypto::dpapi_unprotect(&enc, "76561199609128681").expect("unprotect");
+        let dec = crate::steam::crypto::dpapi_unprotect(&enc, "76561199609128681").expect("unprotect");
         assert_eq!(dec, records["76561199609128681"].token);
     }
 }

@@ -26,6 +26,10 @@ clipboard = "0.5"
 crc32fast = "1.4"
 winreg = "0.52"
 ureq = { version = "2", features = ["json"] }
+aes-gcm = "0.10"
+argon2 = "0.5"
+rand = "0.8"
+zeroize = "1"
 
 [dependencies.windows]
 version = "0.56"
