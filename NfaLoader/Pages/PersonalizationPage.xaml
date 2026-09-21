@@ -1,0 +1,204 @@
+<Page
+    x:Class="NfaLoader.Pages.PersonalizationPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    NavigationCacheMode="Required">
+
+    <!-- Single-screen layout: left card is the avatar (crop stage + previews + buttons), right card is the text profile (nickname / real name / summary / name history option).
+         Help text is folded into the subtitle and tooltips, so a normal-size window needs no scrolling. -->
+    <ScrollViewer
+        HorizontalScrollBarVisibility="Disabled"
+        VerticalScrollBarVisibility="Auto"
+        Padding="32,24,32,16">
+        <StackPanel MaxWidth="1080" Spacing="12" HorizontalAlignment="Left">
+            <StackPanel Spacing="4">
+                <TextBlock
+                    Text="{x:Bind Strings.Get('Personalization_Title'), Mode=OneWay}"
+                    Style="{StaticResource PageTitleTextStyle}" />
+                <TextBlock
+                    Text="{x:Bind Strings.Get('Personalization_Subtitle'), Mode=OneWay}"
+                    Style="{StaticResource PageSubtitleTextStyle}" />
+            </StackPanel>
+
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" MinWidth="320" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Left: avatar. Modeled on Steam: a draggable / resizable square selection over the full image, with size previews + action buttons below. -->
+                <Border Style="{StaticResource CardBorderStyle}">
+                    <StackPanel Spacing="10">
+                        <TextBlock
+                            Text="{x:Bind Strings.Get('Personalization_Avatar_Section'), Mode=OneWay}"
+                            Style="{StaticResource SectionTitleTextStyle}" />
+
+                        <Border x:Name="CropStage" Width="420" Height="320" CornerRadius="8"
+                                Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                Padding="16">
+                            <Grid>
+                                <Grid x:Name="CropArea" Width="388" Height="288" Visibility="Collapsed">
+                                    <Image x:Name="CropImage"
+                                           HorizontalAlignment="Left" VerticalAlignment="Top"
+                                           Stretch="Fill">
+                                        <Image.RenderTransform>
+                                            <CompositeTransform x:Name="CropImageTransform" />
+                                        </Image.RenderTransform>
+                                    </Image>
+                                    <Canvas x:Name="CropOverlay" Width="388" Height="288" Background="Transparent"
+                                            PointerPressed="CropOverlay_PointerPressed"
+                                            PointerMoved="CropOverlay_PointerMoved"
+                                            PointerReleased="CropOverlay_PointerReleased"
+                                            PointerCanceled="CropOverlay_PointerReleased"
+                                            PointerWheelChanged="CropOverlay_PointerWheelChanged" />
+                                </Grid>
+                                <StackPanel x:Name="CropPlaceholder"
+                                            HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
+                                    <FontIcon Glyph="&#xE91B;" FontSize="28" HorizontalAlignment="Center"
+                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <TextBlock Text="{x:Bind Strings.Get('Personalization_Avatar_NoImage'), Mode=OneWay}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               HorizontalAlignment="Center" TextAlignment="Center"
+                                               TextWrapping="Wrap" MaxWidth="240" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <!-- Size previews (left) + pick image / save (right) -->
+                        <Grid>
+                            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Bottom">
+                                <StackPanel Spacing="4">
+                                    <Border Width="100" Height="100" CornerRadius="4"
+                                            Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                            BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                                        <Image x:Name="Preview184" Stretch="UniformToFill" />
+                                    </Border>
+                                    <TextBlock Text="184px" HorizontalAlignment="Center"
+                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                                <StackPanel Spacing="4" VerticalAlignment="Bottom">
+                                    <Border Width="64" Height="64" CornerRadius="4"
+                                            Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                            BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                                        <Image x:Name="Preview64" Stretch="UniformToFill" />
+                                    </Border>
+                                    <TextBlock Text="64px" HorizontalAlignment="Center"
+                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                                <StackPanel Spacing="4" VerticalAlignment="Bottom">
+                                    <Border Width="32" Height="32" CornerRadius="4"
+                                            Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                            BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                                        <Image x:Name="Preview32" Stretch="UniformToFill" />
+                                    </Border>
+                                    <TextBlock Text="32px" HorizontalAlignment="Center"
+                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </StackPanel>
+
+                            <StackPanel HorizontalAlignment="Right" VerticalAlignment="Bottom" Spacing="8">
+                                <Button x:Name="PickImageButton" HorizontalAlignment="Stretch"
+                                        Click="PickImageButton_Click">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon Glyph="&#xEB9F;" FontSize="16" />
+                                        <TextBlock Text="{x:Bind Strings.Get('Personalization_Btn_PickImage'), Mode=OneWay}" />
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="SaveAvatarButton" HorizontalAlignment="Stretch"
+                                        Style="{StaticResource AccentButtonStyle}" IsEnabled="False"
+                                        Click="SaveAvatarButton_Click">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon Glyph="&#xE74E;" FontSize="16" />
+                                        <TextBlock Text="{x:Bind Strings.Get('Personalization_Btn_SaveAvatar'), Mode=OneWay}" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Right: nickname / real name / summary / name history option. The summary fills the remaining height so this card matches the left card. -->
+                <Border Grid.Column="1" Style="{StaticResource CardBorderStyle}">
+                    <Grid RowSpacing="12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Spacing="6">
+                            <Grid>
+                                <TextBlock
+                                    Text="{x:Bind Strings.Get('Personalization_Nickname_Section'), Mode=OneWay}"
+                                    Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock
+                                    x:Name="NicknameCounter"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Bottom"
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </Grid>
+                            <TextBox
+                                x:Name="NicknameBox"
+                                HorizontalAlignment="Stretch"
+                                MaxLength="64"
+                                PlaceholderText="{x:Bind Strings.Get('Personalization_Nickname_Placeholder'), Mode=OneWay}"
+                                IsSpellCheckEnabled="False"
+                                TextChanged="NicknameBox_TextChanged" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Row="1" Spacing="6">
+                            <TextBlock
+                                Text="{x:Bind Strings.Get('Personalization_RealName_Label'), Mode=OneWay}"
+                                Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <TextBox
+                                x:Name="RealNameBox"
+                                HorizontalAlignment="Stretch"
+                                MaxLength="64"
+                                PlaceholderText="{x:Bind Strings.Get('Personalization_RealName_Placeholder'), Mode=OneWay}"
+                                IsSpellCheckEnabled="False"
+                                TextChanged="RealNameBox_TextChanged" />
+                        </StackPanel>
+
+                        <Grid Grid.Row="2" RowSpacing="6">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TextBlock
+                                Text="{x:Bind Strings.Get('Personalization_Summary_Label'), Mode=OneWay}"
+                                Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <TextBox
+                                x:Name="SummaryBox"
+                                Grid.Row="1"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                MinHeight="120"
+                                AcceptsReturn="True"
+                                TextWrapping="Wrap"
+                                ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                PlaceholderText="{x:Bind Strings.Get('Personalization_Summary_Placeholder'), Mode=OneWay}"
+                                IsSpellCheckEnabled="False"
+                                TextChanged="SummaryBox_TextChanged" />
+                        </Grid>
+
+                        <CheckBox
+                            Grid.Row="3"
+                            x:Name="ClearAliasCheckBox"
+                            Content="{x:Bind Strings.Get('Personalization_Alias_Toggle'), Mode=OneWay}"
+                            ToolTipService.ToolTip="{x:Bind Strings.Get('Personalization_Alias_Desc'), Mode=OneWay}"
+                            Checked="ClearAliasCheckBox_Toggled"
+                            Unchecked="ClearAliasCheckBox_Toggled" />
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <InfoBar x:Name="PageInfoBar" IsClosable="True" IsOpen="False" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

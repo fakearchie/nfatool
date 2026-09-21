@@ -1,0 +1,367 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without leading v (example: 0.5.1). Defaults to the version in NfaLoader.csproj."
+        required: false
+        type: string
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release-win-x64:
+    name: Build and release Windows x64
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5.3.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Generate release metadata
+        id: meta
+        shell: pwsh
+        # Pass untrusted / context inputs through env so ${{ }} is not interpolated straight into the script (command injection).
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          New-Item -ItemType Directory -Force -Path .\artifacts | Out-Null
+
+          $eventName = $env:EVENT_NAME
+          $refType = $env:REF_TYPE
+          $refName = $env:REF_NAME
+          $inputVersion = $env:INPUT_VERSION
+
+          # The project file is the one place the version lives, so local builds, the README badge and the release agree.
+          [xml]$project = Get-Content -LiteralPath .\NfaLoader\NfaLoader.csproj -Raw
+          $projectVersion = @($project.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ })[0]
+          if ([string]::IsNullOrWhiteSpace($projectVersion)) {
+            throw "Could not read <Version> from NfaLoader/NfaLoader.csproj."
+          }
+
+          if ($eventName -eq "push" -and $refType -eq "tag" -and $refName.StartsWith("v")) {
+            $tag = $refName
+            $version = $refName.Substring(1)
+          }
+          elseif (-not [string]::IsNullOrWhiteSpace($inputVersion)) {
+            $version = ($inputVersion.Trim() -replace '^[vV]', '')
+            $tag = "v$version"
+          }
+          else {
+            $version = $projectVersion
+            $tag = "v$version"
+          }
+
+          # The version must be X.Y.Z: invalid values (prerelease tags, four-part numbers, typos) fail here right away,
+          # instead of getting as far as the AOT publish and failing there with CS7034 for an invalid AssemblyVersion.
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Version must be X.Y.Z (e.g. 0.5.1), got '$version' from ref/input."
+          }
+
+          if ($version -ne $projectVersion) {
+            throw "Release version $version does not match NfaLoader.csproj ($projectVersion). Bump <Version> in the project first."
+          }
+
+          $shortSha = "${{ github.sha }}".Substring(0, 7)
+          # Exclude the tag being released: on a tag push the checkout already has it, so otherwise it would be picked as the "previous tag",
+          # leaving previousTag..HEAD empty and the changelog always falling back to the placeholder.
+          $previousTag = git tag --list "v*" --sort=-v:refname | Where-Object { $_ -ne $tag } | Select-Object -First 1
+
+          if ([string]::IsNullOrWhiteSpace($previousTag)) {
+            $logRange = "HEAD"
+          } else {
+            $logRange = "$previousTag..HEAD"
+          }
+
+          $changes = @(git log $logRange --pretty=format:"- %s (%h)" --no-merges)
+          if ($changes.Count -eq 0) {
+            $changes = @("- Internal maintenance.")
+          }
+
+          $changelogPath = Join-Path $PWD "artifacts\changelog.txt"
+          $notesPath = Join-Path $PWD "artifacts\release-notes.md"
+
+          $changes | Set-Content -LiteralPath $changelogPath -Encoding UTF8
+          @(
+            "# nfa.pub Loader $tag"
+            ""
+            "Version: ``$tag``"
+            "Platform: ``Windows x64`` (Native AOT + self-contained)"
+            "Commit: ``$shortSha``"
+            ""
+            "## Changelog"
+            $changes
+            ""
+            "## Requirements"
+            "- Windows 10 1809 / Windows 11, x64."
+            "- No runtime to install: Native AOT build with the Windows App SDK self-contained."
+            "- Download and run the installer (Setup.exe)."
+          ) | Set-Content -LiteralPath $notesPath -Encoding UTF8
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "short_sha=$shortSha" >> $env:GITHUB_OUTPUT
+          "notes_path=$notesPath" >> $env:GITHUB_OUTPUT
+          "changelog_path=$changelogPath" >> $env:GITHUB_OUTPUT
+
+      - name: Restore
+        run: dotnet restore .\NfaLoader\NfaLoader.csproj -r win-x64 -p:Platform=x64
+
+      - name: Publish Windows x64 (Native AOT)
+        run: >
+          dotnet publish .\NfaLoader\NfaLoader.csproj
+          --configuration Release
+          --runtime win-x64
+          --no-restore
+          -p:Platform=x64
+          --output .\artifacts\build\win-x64
+          -p:Version=${{ steps.meta.outputs.version }}
+          -p:FileVersion=${{ steps.meta.outputs.version }}.0
+          -p:AssemblyVersion=${{ steps.meta.outputs.version }}.0
+          -p:InformationalVersion=${{ steps.meta.outputs.tag }}+${{ github.sha }}
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+
+      - name: Package
+        id: package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $expectedArtifactName = "nfa-pub-loader-${{ steps.meta.outputs.version }}-win-x64-setup.exe"
+          $metadataPath = Join-Path $PWD "artifacts\latest.json"
+          $publishDir = Join-Path $PWD "artifacts\build\win-x64"
+          $artifactDir = Join-Path $PWD "artifacts"
+
+          # Native AOT output: the exe contains all managed code, so strip symbols and the unused WebView2 components.
+          Get-ChildItem -LiteralPath $publishDir -Filter "*.pdb" -File | Remove-Item -Force
+          foreach ($pattern in @(
+            "Microsoft.Web.WebView2.Core*.dll",
+            "WebView2Loader.dll"
+          )) {
+            Get-ChildItem -LiteralPath $publishDir -Filter $pattern -File | Remove-Item -Force
+          }
+
+          # Inno Setup 6 is a 32-bit app and installs to Program Files (x86) by default; only the IS7 x64 build goes in Program Files.
+          # Probe both folders for both major versions.
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) {
+            foreach ($candidate in @(
+              (Join-Path $env:ProgramFiles "Inno Setup 7\ISCC.exe"),
+              (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 7\ISCC.exe"),
+              (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"),
+              (Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe")
+            )) {
+              if ($candidate -and (Test-Path -LiteralPath $candidate)) {
+                $iscc = $candidate
+                break
+              }
+            }
+          }
+          if (-not $iscc) {
+            throw "Inno Setup compiler (ISCC.exe) was not found on the runner."
+          }
+
+          & $iscc "/DAppVersion=${{ steps.meta.outputs.version }}" "/DPublishDir=$publishDir" "/DOutputDir=$artifactDir" ".\build\installer\NfaLoader.iss"
+          if ($LASTEXITCODE -ne 0) {
+            throw "ISCC failed with exit code $LASTEXITCODE."
+          }
+
+          # In rare cases Inno Setup writes a suffixed file name (such as setup-1.exe); pick the newest file by pattern instead of a hardcoded path that could miss it.
+          $artifact = Get-ChildItem -LiteralPath $artifactDir -Filter "nfa-pub-loader-${{ steps.meta.outputs.version }}-win-x64-setup*.exe" -File |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+
+          if (-not $artifact) {
+            Write-Host "Expected artifact not found: $expectedArtifactName"
+            Write-Host "Files under artifacts/:"
+            Get-ChildItem -LiteralPath $artifactDir -File | Format-Table Name, Length, LastWriteTime -AutoSize
+            throw "Installer artifact was not generated by ISCC."
+          }
+
+          $artifactPath = $artifact.FullName
+          $artifactName = $artifact.Name
+          # The self-contained installer is usually around 25 MB; the 40 MB limit catches unexpected growth early.
+          if ($artifact.Length -gt 40MB) {
+            throw "Release artifact is $([math]::Round($artifact.Length / 1MB, 2)) MB, larger than the 40 MB limit."
+          }
+
+          $sha256 = (Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
+
+          # Append the SHA-256 to the release notes (the notes are served by github.com over TLS, so they can be trusted).
+          # Users who download the installer through a proxy mirror can check it by hand, which guards against a poisoned mirror.
+          Add-Content -LiteralPath "${{ steps.meta.outputs.notes_path }}" -Encoding UTF8 -Value @(
+            ""
+            "## File checksum (SHA-256)"
+            "After downloading, check the installer's integrity (especially if you used a mirror). In PowerShell, run:"
+            '```'
+            "Get-FileHash .\$artifactName -Algorithm SHA256"
+            '```'
+            "The result should match:"
+            "- ``$artifactName``"
+            "  ``$sha256``"
+          )
+
+          $changelog = @(Get-Content -LiteralPath "${{ steps.meta.outputs.changelog_path }}")
+          $metadata = [ordered]@{
+            version = "${{ steps.meta.outputs.version }}"
+            tag = "${{ steps.meta.outputs.tag }}"
+            channel = "stable"
+            platform = "win-x64"
+            commit = "${{ github.sha }}"
+            artifactName = $artifactName
+            artifactSize = $artifact.Length
+            artifactSha256 = $sha256
+            artifactType = "exe-installer"
+            changelog = $changelog
+          }
+          $metadata | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $metadataPath -Encoding UTF8
+
+          "artifact_name=$artifactName" >> $env:GITHUB_OUTPUT
+          "artifact_path=$artifactPath" >> $env:GITHUB_OUTPUT
+          "metadata_path=$metadataPath" >> $env:GITHUB_OUTPUT
+          "artifact_size_mb=$([math]::Round($artifact.Length / 1MB, 2))" >> $env:GITHUB_OUTPUT
+          "artifact_sha256=$sha256" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.meta.outputs.tag }}"
+          $title = "nfa.pub Loader $tag"
+          $target = "${{ github.sha }}"
+          $notes = "${{ steps.meta.outputs.notes_path }}"
+          $artifact = "${{ steps.package.outputs.artifact_path }}"
+          $metadata = "${{ steps.package.outputs.metadata_path }}"
+
+          # Mark as Latest only when this tag is the highest of all v* tags; otherwise re-releasing an old version would point
+          # releases/latest/download/latest.json at the old version and clients would read stale metadata.
+          # Union with $tag: on workflow_dispatch the tag does not exist locally yet (gh creates it remotely), so comparing only existing tags would get it wrong.
+          $allTags = @(git tag --list "v*") + $tag | Select-Object -Unique
+          $highest = $allTags | Sort-Object { [version]($_.Substring(1)) } -Descending | Select-Object -First 1
+          $isLatest = if ($highest -eq $tag) { "true" } else { "false" }
+
+          # gh release view prints nothing to stdout on success, so its pipeline output cannot be used; check for tagName explicitly.
+          $exists = $false
+          $existing = gh release view $tag --json tagName --jq ".tagName" 2>$null
+          if ($LASTEXITCODE -eq 0 -and $existing -eq $tag) { $exists = $true }
+
+          if ($exists) {
+            gh release upload $tag $artifact --clobber
+            gh release upload $tag $metadata --clobber
+            gh release edit $tag --title $title --notes-file $notes --target $target --latest=$isLatest
+          }
+          else {
+            gh release create $tag $artifact $metadata --target $target --title $title --notes-file $notes --latest=$isLatest
+          }
+
+      - name: Post release to Discord
+        continue-on-error: true
+        shell: pwsh
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          SHORT_SHA: ${{ steps.meta.outputs.short_sha }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          ASSET_NAME: ${{ steps.package.outputs.artifact_name }}
+          ASSET_PATH: ${{ steps.package.outputs.artifact_path }}
+          ASSET_SIZE_MB: ${{ steps.package.outputs.artifact_size_mb }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:DISCORD_WEBHOOK_URL)) {
+            Write-Error "DISCORD_WEBHOOK_URL secret is not set. Add it in the repo settings under Secrets and variables, Actions."
+            exit 1
+          }
+
+          $releaseUrl = "$env:REPO_URL/releases/tag/$env:TAG"
+          $downloadUrl = "$env:REPO_URL/releases/download/$env:TAG/$env:ASSET_NAME"
+
+          function New-Payload([bool]$attached) {
+            $how = if ($attached) {
+              "Download the installer attached below, run it, then open the app."
+            } else {
+              "Download the installer from the link below, run it, then open the app."
+            }
+
+            $embed = [ordered]@{
+              title = "nfa.pub Loader $env:TAG"
+              url = $releaseUrl
+              description = "A new **nfa.pub Loader** build is ready.`n`n$how"
+              color = 5763719
+              fields = @(
+                @{ name = "Version"; value = "``$env:TAG``"; inline = $true }
+                @{ name = "Platform"; value = "Windows x64"; inline = $true }
+                @{ name = "Size"; value = "$env:ASSET_SIZE_MB MB"; inline = $true }
+                @{ name = "Download"; value = "[$env:ASSET_NAME]($downloadUrl)"; inline = $false }
+                @{ name = "Commit"; value = "[``$env:SHORT_SHA``]($env:REPO_URL/commit/$env:SHA)"; inline = $false }
+              )
+              footer = @{ text = "$env:REPO, built by GitHub Actions" }
+              timestamp = (Get-Date).ToUniversalTime().ToString("o")
+            }
+
+            $payload = @{
+              username = "GitHub"
+              avatar_url = "https://avatars.githubusercontent.com/u/9919?s=200&v=4"
+              embeds = @($embed)
+            }
+
+            $path = Join-Path $env:RUNNER_TEMP "discord-payload.json"
+            [System.IO.File]::WriteAllText($path, ($payload | ConvertTo-Json -Depth 12 -Compress), [System.Text.UTF8Encoding]::new($false))
+            return $path
+          }
+
+          $response = Join-Path $env:RUNNER_TEMP "discord-response.txt"
+
+          # The installer rides along as an attachment where the server's upload limit allows it.
+          $payloadFile = New-Payload $true
+          $status = & curl.exe -sS -o $response -w "%{http_code}" `
+            -F "payload_json=<$payloadFile" `
+            -F "file=@$env:ASSET_PATH;filename=$env:ASSET_NAME" `
+            $env:DISCORD_WEBHOOK_URL
+
+          if ($status -match '^2') {
+            Write-Host "Posted $env:TAG to Discord with the installer attached."
+            exit 0
+          }
+
+          # Too large for this server (413) or refused for another reason: post the link instead, so the release is still announced.
+          Write-Host "Attaching the installer failed (HTTP $status). Posting a download link instead."
+          Get-Content -LiteralPath $response -ErrorAction SilentlyContinue | Write-Host
+          $payloadFile = New-Payload $false
+          $status = & curl.exe -sS -o $response -w "%{http_code}" `
+            -H "Content-Type: application/json" `
+            --data-binary "@$payloadFile" `
+            $env:DISCORD_WEBHOOK_URL
+
+          if ($status -notmatch '^2') {
+            Get-Content -LiteralPath $response -ErrorAction SilentlyContinue | Write-Host
+            Write-Error "Discord refused the post (HTTP $status)."
+            exit 1
+          }
+
+          Write-Host "Posted $env:TAG to Discord with a download link."

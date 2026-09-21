@@ -1,0 +1,137 @@
+<Window
+    x:Class="NfaLoader.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="nfa.pub Loader">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Custom title bar (drag region) -->
+        <Grid x:Name="AppTitleBar" Background="Transparent">
+            <StackPanel
+                Orientation="Horizontal"
+                Spacing="10"
+                Margin="16,0"
+                VerticalAlignment="Center">
+                <Image
+                    Source="ms-appx:///Assets/Logo.png"
+                    Width="18"
+                    Height="18" />
+                <TextBlock
+                    Text="nfa.pub Loader"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    VerticalAlignment="Center" />
+                <TextBlock
+                    x:Name="TitleVersionText"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    VerticalAlignment="Center" />
+            </StackPanel>
+        </Grid>
+
+        <NavigationView
+            x:Name="RootNavigationView"
+            Grid.Row="1"
+            PaneDisplayMode="Left"
+            OpenPaneLength="196"
+            CompactPaneLength="48"
+            IsSettingsVisible="False"
+            IsBackButtonVisible="Collapsed"
+            IsTitleBarAutoPaddingEnabled="False"
+            Background="Transparent"
+            SelectionChanged="RootNavigationView_SelectionChanged">
+            <!-- Nav item text is set in code by MainWindow.RefreshNavText() for the current language (set in the constructor, refreshed on language change). -->
+            <NavigationView.MenuItems>
+                <NavigationViewItem
+                    x:Name="LoginNavItem"
+                    Tag="login">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8D4;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+
+                <NavigationViewItem
+                    x:Name="HistoryNavItem"
+                    Tag="history">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE81C;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem
+                    x:Name="CachedAccountsNavItem"
+                    Tag="cachedAccounts">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE777;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem
+                    x:Name="LoadoutNavItem"
+                    Tag="loadout">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE7C1;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem
+                    x:Name="PersonalizationNavItem"
+                    Tag="personalization">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE779;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+            <NavigationView.FooterMenuItems>
+                <NavigationViewItem
+                    x:Name="SettingsNavItem"
+                    Tag="settings">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE713;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem
+                    x:Name="AboutNavItem"
+                    Tag="about">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE946;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.FooterMenuItems>
+
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Frame x:Name="ContentFrame" />
+
+                <!-- Global status bar -->
+                <Grid
+                    Grid.Row="1"
+                    Margin="32,4,32,16"
+                    ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <ProgressRing
+                        x:Name="BusyRing"
+                        Width="18"
+                        Height="18"
+                        VerticalAlignment="Center"
+                        IsActive="False"
+                        Visibility="Collapsed" />
+                    <InfoBar
+                        x:Name="StatusInfoBar"
+                        Grid.Column="1"
+                        IsOpen="False"
+                        IsClosable="True"
+                        Severity="Informational" />
+                </Grid>
+            </Grid>
+        </NavigationView>
+    </Grid>
+</Window>

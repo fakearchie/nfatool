@@ -1,0 +1,78 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- net10.0: Native AOT on net8.0 has a WinUI GC hang bug (dotnet/runtime#104582, fixed only in .NET 9+). -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>NfaLoader</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <Version>0.5.0</Version>
+    <FileVersion>0.5.0.0</FileVersion>
+    <AssemblyVersion>0.5.0.0</AssemblyVersion>
+    <InformationalVersion>v0.5.0-dev</InformationalVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Custom Program.Main: catches the CS2 cloud push helper process mode (the cs2-cloud-push switch) before the XAML startup (see Program.cs). -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+
+    <!-- Native AOT publish (applies with dotnet publish -r win-x64 -p:Platform=x64).
+         Per the Windows App SDK guidance, PublishAot must be in the project file so it applies during restore. -->
+    <PublishAot>true</PublishAot>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <!-- The CsWinRT source generator can emit unsafe code (CsWinRT#1721). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Warn at compile time about types that cross the WinRT ABI but are not marked partial. -->
+    <CsWinRTAotWarningLevel>2</CsWinRTAotWarningLevel>
+    <!-- Disable reflection-based System.Text.Json, so an accidental use fails during development instead of blowing up in the AOT build. -->
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <!-- Self-contained: packs the Windows App SDK runtime DLLs into the publish folder,
+         so users don't need the Windows App Runtime installed; with Native AOT there are no runtime dependencies at all. -->
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Manifest Include="$(ApplicationManifest)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Logo.png" CopyToOutputDirectory="PreserveNewest" />
+    <!-- CS2 art: in-game weapon icons, level insignia, Prime and Premier. -->
+    <Content Include="Assets\weapons\*.svg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\cs2\levels\*.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\cs2\*.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\cs2\*.svg" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Steamworks SDK redistributable: "CS2 settings sync" uses ISteamRemoteStorage to force-push cfg files to Steam Cloud.
+         It is checked into the repo (Steamworks SDK redistributable_bin\win64\steam_api64.dll) and build/publish copies it to the output folder,
+         so CI/CD builds ship with the DLL. The Condition is only a safety net: if the file is deleted the build still works and the app reports "steam_api64.dll is missing" at runtime. -->
+    <Content Include="steam_api64.dll" Condition="Exists('steam_api64.dll')" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- UI language packs: copied to Languages\ on publish so contributors and users can edit them, plus an embedded copy in case the publish misses them (see LanguageCatalog).
+         The explicit LogicalName keeps the manifest name stable (NfaLoader.Languages.<code>.json) and stops en/zh-Hant being treated as satellite assembly cultures. -->
+    <Content Include="Languages\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="Languages\*.json">
+      <LogicalName>NfaLoader.Languages.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Reference only the WinUI component package (it pulls in Foundation/Base/InteractiveExperiences),
+         so the WindowsAppSDK metapackage doesn't drag in unused payloads like onnxruntime/DirectML/AI (about 40 MB).
+         In self-contained mode the WinUI component package carries its own runtime DLLs, so no Runtime package is needed. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.2.1" />
+  </ItemGroup>
+
+  <!-- workaround: dotnet publish of an unpackaged WinUI app does not copy the PRI resource index file,
+       and without it startup throws XamlParseException. -->
+  <Target Name="IncludeWinUIPriInPublish" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(TargetDir)$(TargetName).pri" RelativePath="$(TargetName).pri" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+</Project>

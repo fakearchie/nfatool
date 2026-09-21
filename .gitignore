@@ -1,0 +1,10 @@
+bin/
+obj/
+**/bin/
+**/obj/
+.vs/
+.claude/
+*.user
+*.suo
+node_modules_temp/
+artifacts/

@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, production]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Windows x64
+    runs-on: windows-2025-vs2026
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.3
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5.3.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore .\NfaLoader\NfaLoader.csproj -r win-x64 -p:Platform=x64
+
+      - name: Build
+        run: dotnet build .\NfaLoader\NfaLoader.csproj -c Release -r win-x64 -p:Platform=x64 --no-restore
+
+      - name: Check the language file
+        shell: pwsh
+        run: |
+          # A broken en.json leaves every label blank at runtime without failing the build.
+          Get-Content -LiteralPath .\NfaLoader\Languages\en.json -Raw | ConvertFrom-Json | Out-Null
+          Write-Host "en.json is valid JSON."

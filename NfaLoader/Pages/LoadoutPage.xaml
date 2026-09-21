@@ -1,0 +1,117 @@
+<Page
+    x:Class="NfaLoader.Pages.LoadoutPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:NfaLoader.Models"
+    xmlns:imaging="using:Microsoft.UI.Xaml.Media.Imaging"
+    NavigationCacheMode="Required">
+
+    <Page.Resources>
+        <Style x:Key="LoadoutSectionHeaderStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+        </Style>
+
+        <!-- Weapons not equipped yet, dragged up into a slot. The page does its own pointer drag rather than
+             system OLE drag and drop, so it still works when the app runs elevated. Tiles stay dark in both
+             themes because the weapon icons are white. -->
+        <DataTemplate x:Key="PoolTileTemplate" x:DataType="models:LoadoutWeaponTile">
+            <Grid
+                Width="164"
+                Height="46"
+                Margin="0,0,8,8"
+                Background="Transparent"
+                PointerPressed="PoolItem_PointerPressed"
+                PointerMoved="DragSource_PointerMoved"
+                PointerReleased="DragSource_PointerReleased"
+                PointerCaptureLost="DragSource_PointerCaptureLost"
+                PointerCanceled="DragSource_PointerCanceled">
+                <Border CornerRadius="6" Background="#FF2A2C31" BorderThickness="1" BorderBrush="#FF383B42" />
+                <Grid ColumnSpacing="10" Padding="10,0,12,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="56" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Image Height="22" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Image.Source>
+                            <imaging:SvgImageSource UriSource="{x:Bind IconUri}" />
+                        </Image.Source>
+                    </Image>
+                    <TextBlock
+                        Grid.Column="1"
+                        Text="{x:Bind DisplayName}"
+                        FontSize="12"
+                        Foreground="#FFB9BEC7"
+                        VerticalAlignment="Center"
+                        TextTrimming="CharacterEllipsis" />
+                </Grid>
+            </Grid>
+        </DataTemplate>
+    </Page.Resources>
+
+    <Grid x:Name="PageRoot" Padding="32,24,32,16" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Spacing="4">
+            <TextBlock Text="{x:Bind Strings.Get('Loadout_Title'), Mode=OneWay}" Style="{StaticResource PageTitleTextStyle}" />
+            <TextBlock
+                Text="{x:Bind Strings.Get('Loadout_Subtitle'), Mode=OneWay}"
+                Style="{StaticResource PageSubtitleTextStyle}" />
+        </StackPanel>
+
+        <SelectorBar Grid.Row="1" x:Name="TeamSelector" SelectionChanged="TeamSelector_SelectionChanged">
+            <SelectorBarItem x:Name="TeamTItem" Text="{x:Bind Strings.Get('Loadout_Team_T'), Mode=OneWay}" IsSelected="True" />
+            <SelectorBarItem x:Name="TeamCtItem" Text="{x:Bind Strings.Get('Loadout_Team_Ct'), Mode=OneWay}" />
+        </SelectorBar>
+
+        <Border
+            Grid.Row="2"
+            CornerRadius="8"
+            Padding="20"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            BorderThickness="1"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+            <Grid RowSpacing="16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Loadout area: three equal-height columns, slots stretch across star-sized rows to fill → the last row of each column lines up at the bottom (as in CS2). Slots are filled in code. -->
+                <Grid Grid.Row="0" x:Name="EquippedGrid" ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid x:Name="Col0Host" Grid.Column="0" VerticalAlignment="Stretch" />
+                    <Grid x:Name="Col1Host" Grid.Column="1" VerticalAlignment="Stretch" />
+                    <Grid x:Name="Col2Host" Grid.Column="2" VerticalAlignment="Stretch" />
+                </Grid>
+
+                <!-- Available weapon pool (not equipped, by side). -->
+                <StackPanel Grid.Row="1" Spacing="10">
+                    <TextBlock Text="{x:Bind Strings.Get('Loadout_PoolHint'), Mode=OneWay}" Style="{StaticResource LoadoutSectionHeaderStyle}" />
+                    <GridView
+                        x:Name="PoolGrid"
+                        MaxHeight="110"
+                        SelectionMode="None"
+                        IsItemClickEnabled="False"
+                        ItemTemplate="{StaticResource PoolTileTemplate}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Drag ghost layer: a weapon thumbnail that follows the pointer and is left out of hit testing. -->
+        <Canvas
+            x:Name="DragLayer"
+            Grid.Row="0"
+            Grid.RowSpan="3"
+            IsHitTestVisible="False" />
+    </Grid>
+</Page>
