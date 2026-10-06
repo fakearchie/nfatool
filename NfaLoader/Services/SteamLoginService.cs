@@ -31,6 +31,8 @@ internal sealed class SteamLoginService
             var accountCrc32 = Crc32.ComputeSteamAccountKey(accountName);
             AppLog.Info($"Token encrypted ({encryptedJwt.Length} hex chars); ConnectCache key={accountCrc32}");
 
+            // Before Steam is stopped: if it has to be killed while saving, the backup still has every account it remembers.
+            _steamConfigService.BackupRememberedAccounts(paths);
             _steamProcessService.EnsureSteamStopped(paths, progress);
 
             progress?.Report(Loc.T("Steam_Progress_WritingConfig"));
@@ -81,6 +83,7 @@ internal sealed class SteamLoginService
             progress?.Report(Loc.T("Steam_Progress_LocatingInstall"));
             var paths = SteamPathCoordinator.ResolvePathsOrThrow();
 
+            _steamConfigService.BackupRememberedAccounts(paths);
             _steamProcessService.EnsureSteamStopped(paths, progress);
 
             progress?.Report(Loc.T("Steam_Progress_RestoringConfig"));

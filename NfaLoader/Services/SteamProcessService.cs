@@ -40,7 +40,8 @@ internal sealed class SteamProcessService
             AppLog.Warn($"steam.exe not found while closing Steam: \"{steamExe}\"");
         }
 
-        for (var i = 0; i < 10; i++)
+        // Steam writes the accounts it remembers as it closes, so it gets a while to finish before it is killed.
+        for (var i = 0; i < 20; i++)
         {
             if (!IsSteamRunning())
             {
@@ -51,7 +52,7 @@ internal sealed class SteamProcessService
             Thread.Sleep(1000);
         }
 
-        AppLog.Warn("Steam did not exit within 10 seconds, killing its processes.");
+        AppLog.Warn("Steam did not exit within 20 seconds, killing its processes.");
         progress?.Report(Loc.T("Steam_Progress_KillingSteam"));
         KillProcesses("steam");
         KillProcesses("steamwebhelper");

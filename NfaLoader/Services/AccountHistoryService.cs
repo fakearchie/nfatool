@@ -834,28 +834,73 @@ internal sealed class AccountHistoryService
     }
 
     // For "read, modify, overwrite whole file" paths: tells "file does not exist" apart from "file exists but cannot be read or parsed".
-    // The latter throws to abort the overwrite, so an empty document never replaces all saved accounts and tokens.
+    // When accounts.json is missing or unreadable but the .bak from the previous save reads cleanly, that copy is used, so a
+    // save never starts from an empty list while the accounts still exist. With neither, an unreadable file throws to abort
+    // the overwrite, so an empty document never replaces all saved accounts and tokens.
     private AccountHistoryDocument ReadDocumentForWrite()
     {
+        var backupPath = HistoryFilePath + ".bak";
         if (!File.Exists(HistoryFilePath))
         {
+            // A save that failed halfway through File.Replace can leave only the .bak behind.
+            if (TryReadHistoryFile(backupPath, out var recovered, out _))
+            {
+                AppLog.Warn("accounts.json was missing, so History was restored from accounts.json.bak.");
+                return recovered;
+            }
+
             return new AccountHistoryDocument();
+        }
+
+        if (TryReadHistoryFile(HistoryFilePath, out var document, out var error))
+        {
+            return document;
+        }
+
+        if (TryReadHistoryFile(backupPath, out var fromBackup, out _))
+        {
+            // Keep the unreadable file next to it, since the next save replaces it.
+            var keptPath = $"{HistoryFilePath}.unreadable-{DateTime.Now:yyyyMMdd-HHmmss}";
+            try
+            {
+                File.Copy(HistoryFilePath, keptPath, overwrite: false);
+            }
+            catch (Exception copyError) when (copyError is IOException or UnauthorizedAccessException)
+            {
+                AppLog.Warn($"Could not keep a copy of the unreadable accounts.json: {copyError.Message}");
+            }
+
+            AppLog.Error("accounts.json could not be read, so History was restored from accounts.json.bak.", error);
+            return fromBackup;
+        }
+
+        AppLog.Error("Account history file exists but cannot be read. Save aborted so data is not overwritten.", error);
+        throw new InvalidOperationException(
+            Loc.T("Account_Error_HistoryFileUnreadable"),
+            error);
+    }
+
+    private static bool TryReadHistoryFile(string path, out AccountHistoryDocument document, out Exception? error)
+    {
+        document = new AccountHistoryDocument();
+        error = null;
+        if (!File.Exists(path))
+        {
+            return false;
         }
 
         try
         {
-            var json = File.ReadAllText(HistoryFilePath);
-            var document = JsonSerializer.Deserialize(json, AccountHistoryJsonContext.Default.AccountHistoryDocument)
+            var json = File.ReadAllText(path);
+            document = JsonSerializer.Deserialize(json, AccountHistoryJsonContext.Default.AccountHistoryDocument)
                 ?? new AccountHistoryDocument();
             document.Accounts ??= [];
-            return document;
+            return true;
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
-            AppLog.Error("Account history file exists but cannot be read. Save aborted so data is not overwritten.", ex);
-            throw new InvalidOperationException(
-                Loc.T("Account_Error_HistoryFileUnreadable"),
-                ex);
+            error = ex;
+            return false;
         }
     }
 

@@ -632,6 +632,7 @@
     "Cs_Premier_CooldownUnknown": "Cooldown status unknown (GC didn't respond; try again later)",
     "Update_EmptyResponse": "GitHub Releases returned an empty response.",
     "Steam_Error_TokenEncryptFailed": "Failed to encrypt the login token.",
+    "Steam_Error_AccountsFileUnreadable_Format": "Steam's {0} could not be read, so nothing was changed and your other Steam accounts are safe. Start Steam once, close it, and sign in again.",
     "Steam_Error_VdfReadFailed_Format": "Could not read {0}. The operation was stopped to avoid overwriting the existing Steam configuration. {1}",
     "Steam_Error_Vdf_TrailingContent": "The VDF file contains extra content that could not be processed.",
     "Steam_Error_Vdf_BadKeyPosition": "Incorrect VDF key position.",

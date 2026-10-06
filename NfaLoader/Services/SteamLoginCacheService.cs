@@ -62,7 +62,11 @@ internal sealed class SteamLoginCacheService
 
         lock (FileLock)
         {
-            var document = ReadDocument();
+            if (ReadDocumentForWrite() is not { } document)
+            {
+                return;
+            }
+
             var existing = FindExisting(document.EyaAccounts, marker);
             if (existing is null)
             {
@@ -93,7 +97,11 @@ internal sealed class SteamLoginCacheService
         var saved = new List<CachedSteamLoginAccount>();
         lock (FileLock)
         {
-            var document = ReadDocument();
+            if (ReadDocumentForWrite() is not { } document)
+            {
+                return saved;
+            }
+
             foreach (var account in accounts)
             {
                 account.AccountName = account.AccountName.Trim();
@@ -175,7 +183,11 @@ internal sealed class SteamLoginCacheService
         var updatedCount = 0;
         lock (FileLock)
         {
-            var document = ReadDocument();
+            if (ReadDocumentForWrite() is not { } document)
+            {
+                return 0;
+            }
+
             foreach (var (account, profile, avatarPath) in results)
             {
                 if (profile is null)
@@ -242,7 +254,11 @@ internal sealed class SteamLoginCacheService
         int removed;
         lock (FileLock)
         {
-            var document = ReadDocument();
+            if (ReadDocumentForWrite() is not { } document)
+            {
+                return 0;
+            }
+
             removed = document.Accounts.RemoveAll(account => keys.Contains(account.CacheKey));
             document.Accounts = NormalizeAccounts(document.Accounts).ToList();
             WriteDocument(document);
@@ -279,11 +295,29 @@ internal sealed class SteamLoginCacheService
         return count;
     }
 
-    private CachedSteamLoginDocument ReadDocument()
+    // Read-only callers may treat an unreadable file as empty; anything that writes back uses ReadDocumentForWrite.
+    private CachedSteamLoginDocument ReadDocument() =>
+        TryReadDocument(out var document) ? document : new CachedSteamLoginDocument();
+
+    // Null when the file exists but cannot be read. Writing back an empty document would wipe every cached account,
+    // so the change is skipped instead and the file is left for the next read.
+    private CachedSteamLoginDocument? ReadDocumentForWrite()
     {
+        if (TryReadDocument(out var document))
+        {
+            return document;
+        }
+
+        AppLog.Warn($"{Path.GetFileName(CacheFilePath)} could not be read, so it was not changed.");
+        return null;
+    }
+
+    private bool TryReadDocument(out CachedSteamLoginDocument document)
+    {
+        document = new CachedSteamLoginDocument();
         if (!File.Exists(CacheFilePath))
         {
-            return new CachedSteamLoginDocument();
+            return true;
         }
 
         try
@@ -293,33 +327,28 @@ internal sealed class SteamLoginCacheService
             if (jsonDocument.RootElement.ValueKind == JsonValueKind.Object &&
                 jsonDocument.RootElement.TryGetProperty("accounts", out _))
             {
-                var document = JsonSerializer.Deserialize(
+                document = JsonSerializer.Deserialize(
                     json,
                     SteamLoginCacheJsonContext.Default.CachedSteamLoginDocument)
                     ?? new CachedSteamLoginDocument();
                 document.Accounts ??= [];
                 document.EyaAccounts ??= [];
-                return document;
+                return true;
             }
 
             var legacyAccount = JsonSerializer.Deserialize(
                 json,
                 SteamLoginCacheJsonContext.Default.CachedSteamLoginAccount);
-            return legacyAccount is not null && IsUsable(legacyAccount)
-                ? new CachedSteamLoginDocument { Accounts = [legacyAccount] }
-                : new CachedSteamLoginDocument();
+            if (legacyAccount is not null && IsUsable(legacyAccount))
+            {
+                document = new CachedSteamLoginDocument { Accounts = [legacyAccount] };
+            }
+
+            return true;
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
-            return new CachedSteamLoginDocument();
-        }
-        catch (IOException)
-        {
-            return new CachedSteamLoginDocument();
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return new CachedSteamLoginDocument();
+            return false;
         }
     }
 
@@ -337,7 +366,7 @@ internal sealed class SteamLoginCacheService
 
         // Atomic write: write a temp file, then Move it over the target, so a crash or concurrent read only ever sees the complete old file or the complete new one,
         // never the empty or half-written JSON from the middle of File.WriteAllText's "truncate then write".
-        var tempPath = CacheFilePath + ".tmp";
+        var tempPath = CacheFilePath + "." + Path.GetRandomFileName() + ".tmp";
         File.WriteAllText(tempPath, json);
         File.Move(tempPath, CacheFilePath, overwrite: true);
     }

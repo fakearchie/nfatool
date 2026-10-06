@@ -3,6 +3,14 @@ using NfaLoader.Localization;
 
 namespace NfaLoader.Services;
 
+internal enum VdfReadState
+{
+    Missing,
+    Loaded,
+    Empty,
+    Unreadable,
+}
+
 internal static class VdfDocument
 {
     // Steam never writes its own VDF files with a BOM, and a config.vdf with a BOM is unreadable to Steam, which then resets the whole file
@@ -28,8 +36,61 @@ internal static class VdfDocument
         }
     }
 
-    // Used by the sign-in write path: a parse failure must not abort the sign-in. Same as the original binary:
-    // if it cannot be parsed, carry on with an empty document (at worst the file gets regenerated) instead of throwing out of the whole flow.
+    /// <summary>
+    /// Reads a file that is about to be changed and written back. An empty or unparseable file is read again for a
+    /// moment, because Steam may still be writing it as it closes, and is then reported instead of being treated as
+    /// empty: writing back an empty document would leave Steam remembering only the one account just added.
+    /// </summary>
+    /// <param name="text">The text that parsed, so a backup holds exactly what was read.</param>
+    public static VdfReadState LoadForUpdate(
+        string path,
+        out Dictionary<string, object> document,
+        out string text,
+        out string? error,
+        int attempts = 5)
+    {
+        document = new Dictionary<string, object>(StringComparer.Ordinal);
+        text = "";
+        error = null;
+        if (!File.Exists(path))
+        {
+            return VdfReadState.Missing;
+        }
+
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                var read = File.ReadAllText(path, Encoding.UTF8);
+                if (string.IsNullOrWhiteSpace(read))
+                {
+                    if (attempt < attempts)
+                    {
+                        Thread.Sleep(400);
+                        continue;
+                    }
+
+                    return VdfReadState.Empty;
+                }
+
+                document = new VdfParser(read).Parse();
+                text = read;
+                return VdfReadState.Loaded;
+            }
+            catch (Exception) when (attempt < attempts)
+            {
+                Thread.Sleep(400);
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return VdfReadState.Unreadable;
+            }
+        }
+    }
+
+    // For reading only: a parse failure must not abort the caller, so it carries on with an empty document.
+    // Never use it for a file that is written back afterwards; that is what LoadForUpdate is for.
     public static Dictionary<string, object> LoadOrEmpty(string path)
     {
         try
@@ -38,7 +99,7 @@ internal static class VdfDocument
         }
         catch (Exception ex)
         {
-            AppLog.Warn($"Failed to parse {Path.GetFileName(path)}, continuing with an empty document (the file will be regenerated): {ex.Message}");
+            AppLog.Warn($"Failed to parse {Path.GetFileName(path)}, reading it as empty: {ex.Message}");
             return new Dictionary<string, object>(StringComparer.Ordinal);
         }
     }
@@ -73,6 +134,9 @@ internal static class VdfDocument
             throw;
         }
     }
+
+    /// <summary>The exact text Save writes for a document.</summary>
+    public static string ToText(Dictionary<string, object> document) => Write(document);
 
     // ---------- Read helpers ----------
     // VDF key casing is not stable across Steam versions, so every read tries an exact match first, then a case-insensitive scan.
