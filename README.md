@@ -6,7 +6,7 @@
 
 **Sign in to Steam with a login token, and buy or replace nfa.pub accounts from the same window.**
 
-[![Version](https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square)](https://github.com/fakearchie/nfatool/releases/latest)
+[![Version](https://img.shields.io/badge/version-v0.5.1-blue?style=flat-square)](https://github.com/fakearchie/nfatool/releases/latest)
 [![Build](https://img.shields.io/badge/build-automated-2ea44f?style=flat-square&logo=githubactions&logoColor=white)](https://github.com/fakearchie/nfatool/actions)
 [![Platform](https://img.shields.io/badge/Windows-x64-0078D6?style=flat-square&logo=windows11&logoColor=white)](https://nfa.pub)
 [![.NET](https://img.shields.io/badge/.NET-10-512BD4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com)

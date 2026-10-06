@@ -9,10 +9,10 @@
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
-    <Version>0.5.0</Version>
-    <FileVersion>0.5.0.0</FileVersion>
-    <AssemblyVersion>0.5.0.0</AssemblyVersion>
-    <InformationalVersion>v0.5.0-dev</InformationalVersion>
+    <Version>0.5.1</Version>
+    <FileVersion>0.5.1.0</FileVersion>
+    <AssemblyVersion>0.5.1.0</AssemblyVersion>
+    <InformationalVersion>v0.5.1-dev</InformationalVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- Custom Program.Main: catches the CS2 cloud push helper process mode (the cs2-cloud-push switch) before the XAML startup (see Program.cs). -->
