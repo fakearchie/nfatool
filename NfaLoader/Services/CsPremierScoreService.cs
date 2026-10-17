@@ -15,8 +15,12 @@ internal sealed class CsPremierScoreService
     // 9110 may be pushed unprompted before or after the GC welcome; the wait must cover the handshake window, and the receive layer also buffers messages that arrive early.
     // The "disconnect GC, then reconnect" retry loop is still kept (same as cooldown.js: 6 rounds, 11 seconds of waiting per round,
     // reconnect 2.5 seconds after disconnecting), plus an overall time limit so GC welcome retries within one round cannot drag out the total time.
-    // One retry: an account the GC does not answer for is not worth a long wait, and its cooldown then shows as unknown.
-    private const int MaxHelloCycles = 2;
+    // No retry cycle: when the GC has not sent the cooldown by the time the profile is in, it rarely does later, and
+    // waiting for it is what made Refresh status take up to half a minute. The cooldown then shows as unknown.
+    private const int MaxHelloCycles = 1;
+
+    // How long the cooldown may still take once the rating and level have arrived.
+    private static readonly TimeSpan HelloGraceAfterProfile = TimeSpan.FromSeconds(4);
     private static readonly TimeSpan HelloWaitTimeout = TimeSpan.FromSeconds(11);
     private static readonly TimeSpan CachedHelloPollTimeout = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan GcReconnectDelay = TimeSpan.FromSeconds(2.5);
@@ -46,11 +50,12 @@ internal sealed class CsPremierScoreService
             var helloTask = WaitForMatchmakingHelloAsync(cmClient, cancellationToken);
 
             await cmClient.SetGamesPlayedAsync([CsGcSession.Cs2AppId], cancellationToken);
-            await CsGcSession.ConnectAsync(cmClient, cancellationToken);
+            var welcome = await CsGcSession.ConnectAsync(cmClient, cancellationToken);
 
-            // Cooldown/VAC can only come from the GC's MatchmakingGC2ClientHello(9110): PlayersProfile for your own
-            // account always has an empty penalty field. The 9110 waiter is attached before entering 730 so a 9110 pushed unprompted
-            // during the welcome phase is not missed; here we also send the 9109 request, then request PlayersProfile as usual for the Premier rating/level.
+            // Cooldown and VAC come from the matchmaking hello. The GC now sends it inside its welcome and no longer
+            // answers the 9109 request, which is what left the cooldown unknown. The 9109/9110 exchange below is only a
+            // fallback for a welcome without it. PlayersProfile for your own account always has an empty penalty field.
+            var welcomeHello = TryReadHelloFromWelcome(welcome, accountId);
             await cmClient.SendGcProtobufMessageAsync(
                 CsGcSession.Cs2AppId,
                 MatchmakingClient2GCHello,
@@ -72,11 +77,18 @@ internal sealed class CsPremierScoreService
             var profileMessage = await profileTask;
             var profile = DecodePlayersProfile(accountId, profileMessage.Payload);
 
-            var helloData = await helloTask;
-            helloData ??= await WaitForMatchmakingHelloAsync(
-                cmClient,
-                CachedHelloPollTimeout,
-                cancellationToken);
+            // Only look in the cache once the first waiter has finished: while it is still registered, a second one is refused.
+            var helloData = welcomeHello;
+            if (helloData is null &&
+                await Task.WhenAny(helloTask, Task.Delay(HelloGraceAfterProfile, cancellationToken)) == helloTask)
+            {
+                helloData = await helloTask;
+                helloData ??= await WaitForMatchmakingHelloAsync(
+                    cmClient,
+                    CachedHelloPollTimeout,
+                    cancellationToken);
+            }
+
             var helloDeadline = DateTimeOffset.UtcNow + HelloTotalBudget;
 
             for (var cycle = 2;
@@ -205,6 +217,47 @@ internal sealed class CsPremierScoreService
         }
 
         return profile;
+    }
+
+    /// <summary>
+    /// The matchmaking hello the GC embeds in its welcome (field 6 today): account ID, cooldown, VAC flag and level.
+    /// Every embedded message is checked rather than one field number, and only one for this account is accepted.
+    /// </summary>
+    private static CsAccountProfile? TryReadHelloFromWelcome(byte[] welcome, uint accountId)
+    {
+        try
+        {
+            var reader = new SteamProtoReader(welcome);
+            while (reader.TryReadTag(out var field, out var wireType))
+            {
+                // 3 and 4 are the item caches: large, and never the hello.
+                if (wireType != 2 || field is 3 or 4)
+                {
+                    reader.Skip(wireType);
+                    continue;
+                }
+
+                var candidate = reader.ReadLengthDelimited(wireType);
+                try
+                {
+                    var profile = DecodeAccountProfile(candidate);
+                    if (profile.AccountId == accountId && profile.PlayerLevel is not null)
+                    {
+                        return profile;
+                    }
+                }
+                catch (Exception)
+                {
+                    // Not a hello: some other embedded message or plain bytes.
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"Could not read the CS2 welcome: {ex.Message}");
+        }
+
+        return null;
     }
 
     private static CsAccountProfile DecodeAccountProfile(byte[] body)
