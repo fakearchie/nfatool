@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using Microsoft.Win32;
 using NfaLoader.Localization;
 using NfaLoader.Models;
@@ -45,7 +46,7 @@ internal sealed class SteamConfigService
         var local = LoadRememberedAccounts(paths.LocalVdfPath);
         AppLog.Info($"Steam remembers {CountUsers(loginUsers)} account(s) before this sign-in.");
 
-        UpdateConfigVdf(configPath, accountName, steamId, loginUsers);
+        UpdateConfigVdf(configPath, accountName, steamId);
         AppLog.Info($"Wrote config.vdf ({FileLength(configPath)} bytes): \"{configPath}\"");
 
         UpdateLoginUsersVdf(loginUsersPath, loginUsers, accountName, steamId);
@@ -68,7 +69,7 @@ internal sealed class SteamConfigService
             ? null
             : LoadRememberedAccounts(paths.LocalVdfPath);
 
-        UpdateConfigVdf(configPath, account.AccountName, account.SteamId, loginUsers);
+        UpdateConfigVdf(configPath, account.AccountName, account.SteamId);
         AppLog.Info($"Restored config.vdf ({FileLength(configPath)} bytes): \"{configPath}\"");
 
         RestoreLoginUsersVdf(loginUsersPath, loginUsers, account);
@@ -127,8 +128,8 @@ internal sealed class SteamConfigService
     /// <summary>
     /// Reads loginusers.vdf or local.vdf for a sign-in. A clean read is also saved as the backup. A file that is empty or
     /// cannot be read, most likely because Steam was stopped while writing it, falls back to that backup, so the accounts
-    /// Steam remembered come back instead of being replaced by the one account being added. With no backup, an
-    /// unreadable file stops the sign-in and is left as it is.
+    /// Steam remembered come back instead of being replaced by the one account being added. With no backup, every
+    /// account and login token that can still be found in the file is kept. A sign-in is never stopped by this.
     /// </summary>
     private static Dictionary<string, object> LoadRememberedAccounts(string path)
     {
@@ -159,9 +160,61 @@ internal sealed class SteamConfigService
             return document;
         }
 
-        AppLog.Error($"{name} could not be read ({error}) and there is no earlier copy. Sign-in stopped without changing it.");
-        throw new InvalidOperationException(Loc.Tf("Steam_Error_AccountsFileUnreadable_Format", name));
+        // Keep the file as it was, then carry on with whatever can still be found in it.
+        string raw;
+        try
+        {
+            raw = File.ReadAllText(path);
+            SaveBackup($"{name}.unreadable-{DateTime.Now:yyyyMMdd-HHmmss}", raw);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"Could not read {name} to rescue its entries: {ex.Message}");
+            raw = "";
+        }
+
+        var salvaged = name.Equals("local.vdf", StringComparison.OrdinalIgnoreCase)
+            ? SalvageConnectCache(raw)
+            : SalvageLoginUsers(raw);
+        AppLog.Warn($"{name} could not be read ({error}) and there is no earlier copy, so the {CountSalvaged(salvaged)} entries rescued from it were kept.");
+        return salvaged;
     }
+
+    // Pulls each "<SteamID64>" { "key" "value" ... } block out of a loginusers.vdf that does not parse as a whole.
+    private static Dictionary<string, object> SalvageLoginUsers(string text)
+    {
+        var users = new Dictionary<string, object>(StringComparer.Ordinal);
+        foreach (Match block in Regex.Matches(text, @"""(7656\d{13})""\s*\{([^{}]*)\}"))
+        {
+            var user = new Dictionary<string, object>(StringComparer.Ordinal);
+            foreach (Match pair in Regex.Matches(block.Groups[2].Value, @"""([^""\r\n]*)""[ \t]+""([^""\r\n]*)"""))
+            {
+                user[pair.Groups[1].Value] = pair.Groups[2].Value;
+            }
+
+            users[block.Groups[1].Value] = user;
+        }
+
+        return new Dictionary<string, object>(StringComparer.Ordinal) { ["users"] = users };
+    }
+
+    // Pulls each ConnectCache login token ("<crc32>1" "<hex>") out of a local.vdf that does not parse as a whole.
+    private static Dictionary<string, object> SalvageConnectCache(string text)
+    {
+        var local = new Dictionary<string, object>(StringComparer.Ordinal);
+        var connectCache = EnsurePath(local, "MachineUserConfigStore", "Software", "Valve", "Steam", "ConnectCache");
+        foreach (Match pair in Regex.Matches(text, @"""([0-9a-fA-F]{8}1)""\s+""([0-9a-fA-F]+)"""))
+        {
+            connectCache[pair.Groups[1].Value] = pair.Groups[2].Value;
+        }
+
+        return local;
+    }
+
+    private static int CountSalvaged(Dictionary<string, object> document) =>
+        GetPath(document, "MachineUserConfigStore", "Software", "Valve", "Steam", "ConnectCache") is { } cache
+            ? cache.Count
+            : CountUsers(document);
 
     private static void SaveBackup(string name, string text)
     {
@@ -183,7 +236,7 @@ internal sealed class SteamConfigService
     private static int CountUsers(Dictionary<string, object> loginUsers) =>
         TryGetUsers(loginUsers, out var users) ? users.Values.OfType<Dictionary<string, object>>().Count() : 0;
 
-    private static void UpdateConfigVdf(string path, string accountName, string steamId, Dictionary<string, object> loginUsers)
+    private static void UpdateConfigVdf(string path, string accountName, string steamId)
     {
         // Matches the original binary (sub_140003640): config.vdf is built from scratch and overwritten whole,
         // never read or merged with the old file. The old code used LoadOrEmpty to read the user's existing config.vdf
@@ -199,24 +252,7 @@ internal sealed class SteamConfigService
         steam["AutoUpdateWindowEnabled"] = "0";
         steam["MTBF"] = Random.Shared.Next(100000000, 999999999).ToString();
 
-        // Steam keeps an entry here for every account it remembers. The template used to hold only the account being
-        // signed in, which dropped the others from this file on every sign-in, so they are carried over from loginusers.vdf.
         var accounts = EnsureObject(steam, "Accounts");
-        if (TryGetUsers(loginUsers, out var users))
-        {
-            foreach (var (userSteamId, value) in users)
-            {
-                if (value is Dictionary<string, object> user &&
-                    GetString(user, "AccountName") is { Length: > 0 } userAccountName)
-                {
-                    accounts[userAccountName] = new Dictionary<string, object>
-                    {
-                        ["SteamID"] = userSteamId
-                    };
-                }
-            }
-        }
-
         accounts[accountName] = new Dictionary<string, object>
         {
             ["SteamID"] = steamId

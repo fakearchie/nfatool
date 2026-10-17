@@ -1142,7 +1142,8 @@ public sealed partial class LoginPage : Page, INotifyPropertyChanged
         UpdateAccountInfo(accountName, eyaToken);
         // Keep the fetched profile: save it to disk with the CS status. If it were dropped, the nickname/avatar of accounts that were only queried would stay "Not synced" forever,
         // and ApplyStoredAccountInfoProfile below would use the profile-less record to wipe the correct nickname and avatar that briefly showed on the panel.
-        var prefetchedProfile = await UpdateAccountProfileAsync(accountName, eyaToken);
+        // The profile loads while the status is queried, instead of the query waiting for it.
+        var profileTask = UpdateAccountProfileAsync(accountName, eyaToken);
         AccountInfoAvailabilityText.Text = Loc.T("Login_Availability_VerifyingAndQuerying");
         ResetAvailabilityForeground();
         ShowCsStatusPlaceholder(Loc.T("Login_Value_Querying"));
@@ -1169,6 +1170,18 @@ public sealed partial class LoginPage : Page, INotifyPropertyChanged
             ResetAvailabilityForeground();
             RestoreStoredCsStatus(steamId);
             throw;
+        }
+
+        // A profile that could not be loaded only means the name and avatar are not updated this time.
+        SteamAccountHistoryItem? prefetchedProfile;
+        try
+        {
+            prefetchedProfile = await profileTask;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"Profile refresh for {steamId} failed: {ex.Message}");
+            prefetchedProfile = null;
         }
 
         AppState.AccountHistoryService.SaveCsAccountStatus(

@@ -15,11 +15,12 @@ internal sealed class CsPremierScoreService
     // 9110 may be pushed unprompted before or after the GC welcome; the wait must cover the handshake window, and the receive layer also buffers messages that arrive early.
     // The "disconnect GC, then reconnect" retry loop is still kept (same as cooldown.js: 6 rounds, 11 seconds of waiting per round,
     // reconnect 2.5 seconds after disconnecting), plus an overall time limit so GC welcome retries within one round cannot drag out the total time.
-    private const int MaxHelloCycles = 6;
+    // One retry: an account the GC does not answer for is not worth a long wait, and its cooldown then shows as unknown.
+    private const int MaxHelloCycles = 2;
     private static readonly TimeSpan HelloWaitTimeout = TimeSpan.FromSeconds(11);
     private static readonly TimeSpan CachedHelloPollTimeout = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan GcReconnectDelay = TimeSpan.FromSeconds(2.5);
-    private static readonly TimeSpan HelloTotalBudget = TimeSpan.FromSeconds(100);
+    private static readonly TimeSpan HelloTotalBudget = TimeSpan.FromSeconds(25);
 
     private static readonly HttpClient HttpClient = new()
     {
@@ -43,8 +44,6 @@ internal sealed class CsPremierScoreService
         try
         {
             var helloTask = WaitForMatchmakingHelloAsync(cmClient, cancellationToken);
-
-            var webSession = await SteamWebSession.BuildAsync(cmClient, refreshToken, steamId, cancellationToken);
 
             await cmClient.SetGamesPlayedAsync([CsGcSession.Cs2AppId], cancellationToken);
             await CsGcSession.ConnectAsync(cmClient, cancellationToken);
