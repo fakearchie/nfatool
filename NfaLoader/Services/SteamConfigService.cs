@@ -56,6 +56,28 @@ internal sealed class SteamConfigService
         AppLog.Info($"Wrote local.vdf ({FileLength(paths.LocalVdfPath)} bytes): \"{paths.LocalVdfPath}\"");
     }
 
+    /// <summary>
+    /// Steam signs in by itself only when the registry allows it: AutoLoginUser names the account and RememberPassword
+    /// lets it use the saved login. The loader used to rely on "-login" alone, which only worked on PCs where
+    /// RememberPassword was already 1 from something else. Everywhere else Steam opened at its sign-in screen and
+    /// did nothing, even though the sign-in had been reported as done.
+    /// </summary>
+    public void SetAutoLoginUser(string accountName)
+    {
+        try
+        {
+            using var steam = Registry.CurrentUser.CreateSubKey(@"Software\Valve\Steam", writable: true);
+            steam.SetValue("AutoLoginUser", accountName, RegistryValueKind.String);
+            steam.SetValue("RememberPassword", 1, RegistryValueKind.DWord);
+            AppLog.Info($"Set Steam to sign in to \"{accountName}\" automatically.");
+        }
+        catch (Exception ex)
+        {
+            // Steam may still sign in from "-login" and loginusers.vdf, so this does not stop the sign-in.
+            AppLog.Warn($"Could not set Steam's automatic sign-in in the registry: {ex.Message}");
+        }
+    }
+
     public void RestoreLoginFiles(SteamPaths paths, CachedSteamLoginAccount account)
     {
         Directory.CreateDirectory(paths.ConfigPath);

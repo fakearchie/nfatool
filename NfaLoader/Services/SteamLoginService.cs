@@ -49,6 +49,7 @@ internal sealed class SteamLoginService
                 token.SteamId,
                 encryptedJwt,
                 accountCrc32);
+            _steamConfigService.SetAutoLoginUser(accountName);
 
             progress?.Report(Loc.T("Steam_Progress_StartingSteam"));
             _steamProcessService.LaunchSteamWithLogin(paths, accountName);
@@ -88,6 +89,7 @@ internal sealed class SteamLoginService
 
             progress?.Report(Loc.T("Steam_Progress_RestoringConfig"));
             _steamConfigService.RestoreLoginFiles(paths, account);
+            _steamConfigService.SetAutoLoginUser(account.AccountName);
 
             progress?.Report(Loc.T("Steam_Progress_StartingSteam"));
             _steamProcessService.LaunchSteamWithLogin(paths, account.AccountName);
