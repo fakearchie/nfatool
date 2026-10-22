@@ -647,9 +647,11 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
                 account.AccountName, account.EyaToken, progress, cancellationToken);
             started = result;
             AppState.ReloadHistory(result.SteamId);
+            // The sign-in progress has replaced the check's warning by now, so an unchecked token is repeated here.
             AppState.ShowStatus(
-                Loc.Tf("History_Status_LoginStarted_Format", account.AccountTitle, result.SteamId),
-                InfoBarSeverity.Informational);
+                Loc.Tf("History_Status_LoginStarted_Format", account.AccountTitle, result.SteamId) +
+                    (result.TokenChecked ? "" : Loc.T("Login_Status_TokenNotChecked_Suffix")),
+                result.TokenChecked ? InfoBarSeverity.Informational : InfoBarSeverity.Warning);
         }
         // QuickLoginAsync also throws an OperationCanceledException without a token when the user closes the Steam folder picker.
         catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested || !ex.CancellationToken.CanBeCanceled)
@@ -867,8 +869,9 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
                 SteamTokenOnlineValidationResult result;
                 try
                 {
+                    // Cleaned first, like a sign-in does, so a token saved with extra text by an older import is still checked.
                     result = await AppState.TokenOnlineValidationService.ValidateAsync(
-                        account.EyaToken, cancellationToken);
+                        FormatHelper.NormalizeToken(account.EyaToken), cancellationToken);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {

@@ -512,12 +512,12 @@ public sealed partial class LoginPage : Page, INotifyPropertyChanged
         // Pass the persona/avatar fetched here straight to SaveLoginAsync, so saving to history does not fetch them again.
         // triggerBackgroundRefresh:false for the same reason as "Sign in to Steam": the fallback refresh moves to after the save, so an old snapshot cannot overwrite new values.
         var profile = await UpdateAccountProfileAsync(accountName, eyaToken, triggerBackgroundRefresh: false);
-        await EnsureTokenAcceptedBySteamAsync(eyaToken, "Login_Action_Login", cancellationToken);
+        var tokenChecked = await EnsureTokenAcceptedBySteamAsync(eyaToken, "Login_Action_Login", cancellationToken);
         var result = await Task.Run(
             () => AppState.LoginService.Login(accountName, eyaToken, progress),
             cancellationToken);
         await SaveLoginHistoryAsync(result, eyaToken, profile);
-        return result;
+        return result with { TokenChecked = tokenChecked };
     }
 
     private async void BuyButton_Click(object sender, RoutedEventArgs e)

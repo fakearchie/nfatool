@@ -6,4 +6,7 @@ public sealed record LoginResult(string AccountName, string SteamId, DateTimeOff
 
     /// <summary>Where Steam's connection log ended when Steam was started, for checking that it really signed in.</summary>
     public NfaLoader.Services.SteamSignInMark? SignInMark { get; init; }
+
+    /// <summary>False when Steam could not be reached to check the token before it was started.</summary>
+    public bool TokenChecked { get; init; } = true;
 }

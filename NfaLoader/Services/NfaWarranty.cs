@@ -9,6 +9,7 @@ internal enum NfaWarrantyState
     Closed,
     NoneLeft,
     Replaced,
+    NotCovered,
     Unknown,
 }
 
@@ -41,6 +42,12 @@ internal static class NfaWarranty
         if (!string.IsNullOrWhiteSpace(account.NfaReplacedBy))
         {
             return Loc.Tf("Nfa_Warranty_ReplacedBy_Format", account.NfaReplacedBy);
+        }
+
+        // nfa.pub refused this account for good (banned, cooldown, warranty ended), whatever the order has left.
+        if (!string.IsNullOrWhiteSpace(account.NfaReplaceRefusal))
+        {
+            return Loc.T("Nfa_Warranty_NotCovered");
         }
 
         // Checked before the count: a refusal for a closed window is also recorded as none left.
@@ -81,6 +88,15 @@ internal static class NfaWarranty
                 NfaWarrantyState.Replaced,
                 Loc.T("Nfa_Status_Replaced"),
                 Loc.Tf("Nfa_Status_Replaced_Detail_Format", account.NfaReplacedBy));
+        }
+
+        if (account.NfaReplaceRefusal is { Length: > 0 } refusal)
+        {
+            var reason = Loc.T($"Nfa_Status_NotCovered_{refusal}");
+            return new(
+                NfaWarrantyState.NotCovered,
+                Loc.T("Nfa_Status_NotCovered"),
+                reason == $"Nfa_Status_NotCovered_{refusal}" ? null : reason);
         }
 
         var end = account.NfaOrderDeliveredAt is { } delivered ? delivered + Window : (DateTimeOffset?)null;
