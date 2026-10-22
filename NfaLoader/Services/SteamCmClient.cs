@@ -13,15 +13,30 @@ namespace NfaLoader.Services;
 internal enum SteamEresult
 {
     Ok = 1,
+    Fail = 2,
+    NoConnection = 3,
     InvalidPassword = 5,
     LoggedInElsewhere = 6,
     InvalidParam = 8,
+    Busy = 10,
     AccessDenied = 15,
+    Timeout = 16,
+    Banned = 17,
+    ServiceUnavailable = 20,
     Revoked = 26,
     Expired = 27,
     LogonSessionReplaced = 34,
+    ConnectFailed = 35,
+    HandshakeFailed = 36,
+    IOFailure = 37,
+    RemoteDisconnect = 38,
+    AccountDisabled = 43,
+    TryAnotherCM = 48,
     AlreadyLoggedInElsewhere = 50,
-    AccountLogonDenied = 63
+    AccountLogonDenied = 63,
+    AccountLockedDown = 73,
+    RateLimitExceeded = 84,
+    AccountLoginDeniedThrottle = 87
 }
 
 internal sealed class SteamCmException : InvalidOperationException
@@ -34,6 +49,11 @@ internal sealed class SteamCmException : InvalidOperationException
 
     public int Result { get; }
 
+    /// <summary>The EResult's name for the log, such as "RateLimitExceeded".</summary>
+    public string ResultName => Enum.IsDefined((SteamEresult)Result)
+        ? ((SteamEresult)Result).ToString()
+        : "Unknown";
+
     public bool IsTokenFailure => Result is
         (int)SteamEresult.InvalidPassword or
         (int)SteamEresult.InvalidParam or
@@ -41,6 +61,29 @@ internal sealed class SteamCmException : InvalidOperationException
         (int)SteamEresult.Revoked or
         (int)SteamEresult.Expired or
         (int)SteamEresult.AccountLogonDenied;
+
+    /// <summary>Steam itself will not let this account sign in, whatever the token.</summary>
+    public bool IsAccountFailure => Result is
+        (int)SteamEresult.Banned or
+        (int)SteamEresult.AccountDisabled or
+        (int)SteamEresult.AccountLockedDown;
+
+    /// <summary>Steam is throttling sign-ins from this network. The token may be fine.</summary>
+    public bool IsRateLimited => Result is
+        (int)SteamEresult.RateLimitExceeded or
+        (int)SteamEresult.AccountLoginDeniedThrottle;
+
+    /// <summary>The CM could not handle the logon right now, so another CM may well answer it.</summary>
+    public bool IsTransient => Result is
+        (int)SteamEresult.NoConnection or
+        (int)SteamEresult.Busy or
+        (int)SteamEresult.Timeout or
+        (int)SteamEresult.ServiceUnavailable or
+        (int)SteamEresult.ConnectFailed or
+        (int)SteamEresult.HandshakeFailed or
+        (int)SteamEresult.IOFailure or
+        (int)SteamEresult.RemoteDisconnect or
+        (int)SteamEresult.TryAnotherCM;
 
     private static string GetMessage(int result)
     {
@@ -55,6 +98,15 @@ internal sealed class SteamCmException : InvalidOperationException
             (int)SteamEresult.AccessDenied or
             (int)SteamEresult.AccountLogonDenied =>
                 Loc.T("Cm_Error_TokenRejected"),
+            (int)SteamEresult.Banned =>
+                Loc.T("Cm_Error_AccountBanned"),
+            (int)SteamEresult.AccountDisabled =>
+                Loc.T("Cm_Error_AccountDisabled"),
+            (int)SteamEresult.AccountLockedDown =>
+                Loc.T("Cm_Error_AccountLocked"),
+            (int)SteamEresult.RateLimitExceeded or
+            (int)SteamEresult.AccountLoginDeniedThrottle =>
+                Loc.T("Cm_Error_RateLimited"),
             _ => Loc.Tf("Cm_Error_LogOnFailed_Format", result)
         };
     }
@@ -114,7 +166,18 @@ internal sealed class SteamCmClient : IAsyncDisposable
     {
         _steamId = ulong.Parse(steamId, CultureInfo.InvariantCulture);
 
-        var servers = await GetCmServersAsync(cancellationToken);
+        List<string> servers;
+        try
+        {
+            servers = await GetCmServersAsync(cancellationToken);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            // HttpClient reports its own timeout as a cancel. On a network that drops packets this is the usual
+            // failure, and callers must not mistake it for the user pressing Cancel.
+            throw new TimeoutException(Loc.T("Cm_Error_ServerListTimeout"), ex);
+        }
+
         Exception? lastError = null;
 
         foreach (var server in servers.Take(8))
@@ -127,9 +190,11 @@ internal sealed class SteamCmClient : IAsyncDisposable
                 await LogOnAsync(refreshToken, cancellationToken);
                 return;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
-                if (ex is SteamCmException cmException && cmException.IsTokenFailure)
+                // A CM that answered the logon has given Steam's verdict. Asking the next CM only repeats it and,
+                // for a throttled network, adds to the rate limit, so only a CM that could not handle it is skipped.
+                if (ex is SteamCmException { IsTransient: false })
                 {
                     throw;
                 }

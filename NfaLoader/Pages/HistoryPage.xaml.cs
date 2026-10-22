@@ -632,8 +632,12 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
                 Loc.Tf("History_Status_LoginStarted_Format", account.AccountTitle, result.SteamId),
                 InfoBarSeverity.Informational);
         }
-        catch (OperationCanceledException)
+        // QuickLoginAsync also throws an OperationCanceledException without a token when the user closes the Steam folder picker.
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested || !ex.CancellationToken.CanBeCanceled)
         {
+            AppLog.Info(cancellationToken.IsCancellationRequested
+                ? "Quick login cancelled by the user."
+                : "Quick login stopped, no Steam folder was picked.");
             AppState.ShowStatus(Loc.T("History_Status_LoginCanceled"), InfoBarSeverity.Informational);
         }
         catch (SteamTokenRefusedException ex)
@@ -644,6 +648,12 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
             {
                 refusedNfaAccount = account;
             }
+        }
+        catch (SteamCmException ex) when (ex.IsRateLimited)
+        {
+            // The token may be fine, so no replacement is offered.
+            AppLog.Warn("Quick login stopped, Steam is rate limiting sign-ins from this network.");
+            AppState.ShowStatus(ex.Message, InfoBarSeverity.Warning);
         }
         catch (Exception ex)
         {
@@ -816,7 +826,9 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
         var cancellationToken = AppState.BeginBusyOperation();
         var invalid = new List<SteamAccountHistoryItem>();
         var tested = 0;
+        var unclear = 0;
         string? networkError = null;
+        string? rateLimited = null;
         var canceled = false;
 
         try
@@ -839,14 +851,27 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
                     result = await AppState.TokenOnlineValidationService.ValidateAsync(
                         account.EyaToken, cancellationToken);
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     canceled = true;
                     break;
                 }
+                catch (SteamCmException ex) when (ex.IsRateLimited)
+                {
+                    // Every further check would be throttled too and only keeps the limit going.
+                    rateLimited = ex.Message;
+                    break;
+                }
+                catch (SteamCmException)
+                {
+                    // Steam answered, but not with a yes or a no for this token (ValidateAsync logged the EResult), so the account is kept.
+                    unclear++;
+                    continue;
+                }
                 catch (Exception ex)
                 {
                     // Network error (CM unreachable, timeout, etc.): stop now and delete no accounts.
+                    AppLog.Warn($"Network error while batch testing history accounts, stopped: {ex.GetType().Name}: {ex.Message}");
                     networkError = ex.Message;
                     break;
                 }
@@ -868,32 +893,45 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
                 AppState.ReloadHistory();
             }
 
+            var unclearNote = unclear > 0 ? Loc.Tf("History_Status_TestUnclear_Suffix_Format", unclear) : "";
+
             if (networkError is not null)
             {
-                AppLog.Warn($"Network error while batch testing history accounts, stopped: {networkError}");
                 AppState.ShowStatus(
-                    removed > 0
+                    (removed > 0
                         ? Loc.Tf("History_Status_TestNetworkErr_WithRemoved_Format", tested, networkError, removed)
-                        : Loc.Tf("History_Status_TestNetworkErr_Format", tested, networkError),
+                        : Loc.Tf("History_Status_TestNetworkErr_Format", tested, networkError)) + unclearNote,
                     InfoBarSeverity.Error);
+                return;
+            }
+
+            if (rateLimited is not null)
+            {
+                AppLog.Warn($"Steam rate limited the batch test of history accounts, stopped after {tested} tested.");
+                AppState.ShowStatus(
+                    (removed > 0
+                        ? Loc.Tf("History_Status_TestRateLimited_WithRemoved_Format", tested, rateLimited, removed)
+                        : Loc.Tf("History_Status_TestRateLimited_Format", tested, rateLimited)) + unclearNote,
+                    InfoBarSeverity.Warning);
                 return;
             }
 
             if (canceled)
             {
+                AppLog.Info($"Batch test of history accounts cancelled by the user after {tested} tested.");
                 AppState.ShowStatus(
-                    removed > 0
+                    (removed > 0
                         ? Loc.Tf("History_Status_TestCanceled_WithRemoved_Format", tested, removed)
-                        : Loc.Tf("History_Status_TestCanceled_Format", tested),
+                        : Loc.Tf("History_Status_TestCanceled_Format", tested)) + unclearNote,
                     InfoBarSeverity.Informational);
                 return;
             }
 
             AppState.ShowStatus(
-                removed > 0
+                (removed > 0
                     ? Loc.Tf("History_Status_TestDone_WithRemoved_Format", tested, removed)
-                    : Loc.Tf("History_Status_TestDone_AllValid_Format", tested),
-                InfoBarSeverity.Success);
+                    : Loc.Tf("History_Status_TestDone_AllValid_Format", tested)) + unclearNote,
+                unclear > 0 ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
         }
         catch (Exception ex)
         {

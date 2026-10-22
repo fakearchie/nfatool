@@ -12,6 +12,11 @@ internal sealed class SteamTokenOnlineValidationService
         Timeout = TimeSpan.FromSeconds(30)
     };
 
+    /// <summary>
+    /// Asks Steam whether it accepts the token. IsValid is false when the token or the account is dead. A rate limit
+    /// or another answer that says nothing about the token is thrown as <see cref="SteamCmException"/>. Anything else
+    /// thrown, apart from the caller's own cancel, means Steam could not be reached.
+    /// </summary>
     public async Task<SteamTokenOnlineValidationResult> ValidateAsync(
         string refreshToken,
         CancellationToken cancellationToken = default)
@@ -31,11 +36,18 @@ internal sealed class SteamTokenOnlineValidationService
         try
         {
             await cmClient.ConnectAndLogOnAsync(refreshToken, tokenInfo.SteamId, cancellationToken);
+            AppLog.Info($"Token check for {tokenInfo.SteamId}: Steam accepted the token.");
             return new SteamTokenOnlineValidationResult(true, Loc.T("Token_Result_Accepted"));
         }
-        catch (SteamCmException ex) when (ex.IsTokenFailure)
+        catch (SteamCmException ex)
         {
-            return new SteamTokenOnlineValidationResult(false, ex.Message);
+            AppLog.Warn($"Token check for {tokenInfo.SteamId}: Steam answered EResult={ex.Result} ({ex.ResultName}).");
+            if (ex.IsTokenFailure || ex.IsAccountFailure)
+            {
+                return new SteamTokenOnlineValidationResult(false, ex.Message);
+            }
+
+            throw;
         }
     }
 }

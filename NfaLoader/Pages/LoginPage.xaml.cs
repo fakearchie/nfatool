@@ -370,20 +370,23 @@ public sealed partial class LoginPage : Page, INotifyPropertyChanged
             // triggerBackgroundRefresh:false: sign-in takes tens of seconds, and new values written by a fallback refresh now would be overwritten when sign-in ends
             // by this snapshot (old values) that SaveLoginAsync writes back, so the fallback refresh runs after SaveLoginHistoryAsync saves instead.
             var profile = await UpdateAccountProfileAsync(accountName, eyaToken, triggerBackgroundRefresh: false);
-            await EnsureTokenAcceptedBySteamAsync(eyaToken, "Login_Action_Login", cancellationToken);
+            var tokenChecked = await EnsureTokenAcceptedBySteamAsync(eyaToken, "Login_Action_Login", cancellationToken);
             var result = await Task.Run(
                 () => AppState.LoginService.Login(accountName, eyaToken, progress),
                 cancellationToken);
             var historyStatus = await SaveLoginHistoryAsync(result, eyaToken, profile);
             started = result;
+            // Login's progress text has replaced the check's warning by now, so an unchecked token is repeated here.
             ShowStatus(
-                Loc.Tf("Login_Status_LoginStarted_Format", result.SteamId, FormatHelper.FormatRemaining(result.Remaining), historyStatus),
-                _lastLoginHistorySaveFailed
+                Loc.Tf("Login_Status_LoginStarted_Format", result.SteamId, FormatHelper.FormatRemaining(result.Remaining), historyStatus) +
+                    (tokenChecked ? "" : Loc.T("Login_Status_TokenNotChecked_Suffix")),
+                _lastLoginHistorySaveFailed || !tokenChecked
                     ? InfoBarSeverity.Warning
                     : InfoBarSeverity.Informational);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            AppLog.Info("Sign-in cancelled by the user.");
             ShowStatus(Loc.T("Login_Status_LoginCancelled"), InfoBarSeverity.Informational);
         }
         catch (SteamTokenRefusedException ex)
@@ -391,6 +394,12 @@ public sealed partial class LoginPage : Page, INotifyPropertyChanged
             AppLog.Warn($"Sign-in stopped, Steam refused the login token: {ex.Message}");
             ShowStatus(ex.Message, InfoBarSeverity.Error);
             refusedNfaAccount = FindNfaAccountForToken(attemptedToken);
+        }
+        catch (SteamCmException ex) when (ex.IsRateLimited)
+        {
+            // The token may be fine, so no replacement is offered.
+            AppLog.Warn("Sign-in stopped, Steam is rate limiting sign-ins from this network.");
+            ShowStatus(ex.Message, InfoBarSeverity.Warning);
         }
         catch (Exception ex)
         {
@@ -1610,7 +1619,12 @@ public sealed partial class LoginPage : Page, INotifyPropertyChanged
         UpdateAccountInfoNfa();
     }
 
-    private async Task EnsureTokenAcceptedBySteamAsync(
+    /// <summary>
+    /// Asks Steam whether it accepts the token before signing in. Returns false when the check had to be skipped, so the
+    /// caller can say so. Throws <see cref="SteamTokenRefusedException"/> when the token or the account is dead, and
+    /// <see cref="SteamCmException"/> when Steam is rate limiting this network.
+    /// </summary>
+    private async Task<bool> EnsureTokenAcceptedBySteamAsync(
         string eyaToken,
         string actionName,
         CancellationToken cancellationToken = default)
@@ -1621,22 +1635,38 @@ public sealed partial class LoginPage : Page, INotifyPropertyChanged
         SteamTokenOnlineValidationResult online;
         try
         {
-            // ValidateAsync only turns "token refused by Steam" into IsValid=false; network or CM unreachable (including
-            // TimeoutException) is thrown. Signing in itself only writes VDF + starts Steam and does not need this machine to reach CM,
-            // so a network failure should not block sign-in: show a neutral message and carry on.
+            // Signing in itself only writes VDF + starts Steam and does not need this machine to reach CM,
+            // so a network failure should not block sign-in: show a warning and carry on.
             online = await AppState.TokenOnlineValidationService.ValidateAsync(eyaToken, cancellationToken);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
+        catch (SteamCmException ex) when (ex.IsRateLimited)
+        {
+            // Steam throttles its own sign-in from this network the same way, so starting it now would only fail too.
+            AccountInfoAvailabilityText.Text = Loc.T("Login_Availability_NotVerifiedRateLimited");
+            ResetAvailabilityForeground();
+            throw;
+        }
+        catch (SteamCmException ex)
+        {
+            // Steam did answer, but not with a yes or a no for this token, so it is treated like an unchecked token.
+            AppLog.Warn($"Steam's answer (EResult={ex.Result}) does not say whether the token works, skipped the check and continuing with {Loc.T(actionName)}.");
+            AccountInfoAvailabilityText.Text = Loc.Tf("Login_Availability_NotVerifiedAnswer_Format", ex.Result);
+            ResetAvailabilityForeground();
+            ShowStatus(Loc.Tf("Login_Status_SkippedOnlineValidationAnswer_Format", ex.Result, Loc.T(actionName)), InfoBarSeverity.Warning);
+            return false;
+        }
         catch (Exception ex)
         {
-            AppLog.Warn($"Could not reach Steam to validate the token online, skipped online validation and continuing with {Loc.T(actionName)}: {ex.Message}");
+            // This includes any timeout, even one that arrives as an OperationCanceledException the user did not ask for.
+            AppLog.Warn($"Could not reach Steam to check the token ({ex.GetType().Name}: {ex.Message}), skipped the check and continuing with {Loc.T(actionName)}.");
             AccountInfoAvailabilityText.Text = Loc.T("Login_Availability_NotVerifiedOffline");
             ResetAvailabilityForeground();
             ShowStatus(Loc.Tf("Login_Status_SkippedOnlineValidation_Format", Loc.T(actionName)), InfoBarSeverity.Warning);
-            return;
+            return false;
         }
 
         AccountInfoAvailabilityText.Text = online.IsValid ? Loc.T("Login_Availability_Valid") : Loc.T("Login_Availability_Invalid");
@@ -1645,10 +1675,10 @@ public sealed partial class LoginPage : Page, INotifyPropertyChanged
 
         if (online.IsValid)
         {
-            return;
+            return true;
         }
 
-        // Getting here means Steam really refused the token (the IsTokenFailure path): keep it red and block the next actions.
+        // Getting here means Steam really refused the token or the account: keep it red and block the next actions.
         throw new SteamTokenRefusedException(
             Loc.Tf("Login_Error_StatusCannotAction_Format", online.Status, Loc.T(actionName)));
     }
