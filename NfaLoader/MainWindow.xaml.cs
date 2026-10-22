@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -21,6 +22,10 @@ public sealed partial class MainWindow : Window
     private const int MinWindowHeight = 780;
     private const uint WmGetMinMaxInfo = 0x0024;
     private const nuint WindowSubclassId = 1;
+    private const uint MbYesNo = 0x0004;
+    private const uint MbIconWarning = 0x0030;
+    private const uint MbDefButton2 = 0x0100;
+    private const int IdYes = 6;
 
     private static nint s_hwnd;
 
@@ -59,6 +64,7 @@ public sealed partial class MainWindow : Window
         RefreshUpdateBadge();
 
         ConfigureWindowSize();
+        AppWindow.Closing += OnAppWindowClosing;
 
         // Preload account history; the sign-in page reuses avatars/profile data from this cache.
         AppState.ReloadHistory();
@@ -83,6 +89,27 @@ public sealed partial class MainWindow : Window
         {
             AppLog.Error("Failed to resolve the Steam install path at startup.", ex);
         }
+
+        // After the Steam path dialog, because only one dialog can be open at a time.
+        await NfaReplaceFlow.ShowUnfinishedAsync(RootNavigationView.XamlRoot);
+    }
+
+    // A replacement cannot be replayed, so closing while nfa.pub works on one leaves the new account only on the order's
+    // page. A native box is used because the replacement window is usually open, and only one ContentDialog can be open
+    // at a time.
+    private void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (!NfaReplaceFlow.IsRunning)
+        {
+            return;
+        }
+
+        var answer = MessageBox(
+            s_hwnd,
+            Loc.T("Nfa_Replace_CloseWarning_Message"),
+            Loc.T("Nfa_Replace_CloseWarning_Title"),
+            MbYesNo | MbIconWarning | MbDefButton2);
+        args.Cancel = answer != IdYes;
     }
 
     public void ShowStatus(string message, InfoBarSeverity severity)
@@ -269,6 +296,9 @@ public sealed partial class MainWindow : Window
 
     [LibraryImport("comctl32.dll")]
     private static partial nint DefSubclassProc(nint hWnd, uint message, nint wParam, nint lParam);
+
+    [LibraryImport("user32.dll", EntryPoint = "MessageBoxW", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial int MessageBox(nint hWnd, string text, string caption, uint type);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Point

@@ -78,8 +78,15 @@ internal sealed class NfaPubClient
                 continue;
             }
 
+            // /cs2 refuses a product id as its type, so a product the loader cannot map would fail on every Buy.
+            if (BuyTypeFor(id) is not { } type)
+            {
+                AppLog.Warn($"nfa.pub product {id} has no known buy type, so it is not offered");
+                continue;
+            }
+
             items.Add(new NfaStockItem(
-                BuyTypeFor(id),
+                type,
                 id,
                 ReadString(entry, "name") ?? id,
                 ReadInt(entry, "priceCents") / 100m,
@@ -89,18 +96,21 @@ internal sealed class NfaPubClient
         return items;
     }
 
-    // Product ids from /products mapped to the type values /cs2 documents. An id with no documented type is
-    // sent as-is; if the API does not accept it, it refuses the request before charging anything.
-    private static string BuyTypeFor(string productId) => productId switch
+    // Product ids from /products mapped to the type values /cs2 documents. The live /stock response does not name the
+    // type, so the pairs come from the docs and the store: the inactive product is listed as "Inactive 14+ days" and
+    // the knife or glove one as "Rare item included". An id with no known type returns null.
+    private static string? BuyTypeFor(string productId) => productId switch
     {
         "prime-ready" => "prime",
         "premier-ready" => "premier",
         "premier-ready-4-medals" => "premier-4-medals",
         "premier-ready-10-medals" => "premier-10-medals",
+        "premier-ready-inactive-14d" => "premier-inactive",
         "premier-ready-10k-rating" => "premier-10k",
         "premier-ready-15k-rating" => "premier-15k",
         "premier-ready-20k-rating" => "premier-20k",
-        _ => productId,
+        "premier-ready-knife-glove" => "premier-rare",
+        _ => null,
     };
 
 

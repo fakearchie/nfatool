@@ -299,6 +299,36 @@ internal sealed class AccountHistoryService
         }
     }
 
+    /// <summary>
+    /// Records on one account what a replacement left behind when no result was saved: a swap that may have gone
+    /// through, or a refusal that is final. Null leaves that field as it is. Only this account changes, because the
+    /// rest of its order keeps its cover. Returns false when the account is not in History.
+    /// </summary>
+    public bool SaveNfaReplaceOutcome(string steamId, DateTimeOffset? unconfirmedAt, string? refusal)
+    {
+        _fileGate.Wait();
+        try
+        {
+            var document = ReadDocumentForWrite();
+            var item = document.Accounts.FirstOrDefault(account =>
+                string.Equals(account.SteamId, steamId, StringComparison.OrdinalIgnoreCase));
+            if (item is null)
+            {
+                return false;
+            }
+
+            item.NfaReplaceUnconfirmedAt = unconfirmedAt ?? item.NfaReplaceUnconfirmedAt;
+            item.NfaReplaceRefusal = refusal ?? item.NfaReplaceRefusal;
+            document.Accounts = NormalizeAccounts(document.Accounts).ToList();
+            WriteDocument(document);
+            return true;
+        }
+        finally
+        {
+            _fileGate.Release();
+        }
+    }
+
     public void SaveCsAccountStatus(
         string accountName,
         string steamId,

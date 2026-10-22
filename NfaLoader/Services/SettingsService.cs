@@ -169,6 +169,16 @@ internal sealed class AppSettings
 
     /// <summary>The API key the pending purchase was sent with, DPAPI-protected, so a replay never uses a different account.</summary>
     public string? NfaPendingApiKeyProtected { get; set; }
+
+    /// <summary>
+    /// A replacement sent but whose result is not saved yet, saved before the request goes out. A swap cannot be
+    /// replayed, so if the loader closes first, the next start tells the user to collect the new account from the order.
+    /// </summary>
+    public string? NfaReplacingSteamId { get; set; }
+
+    public string? NfaReplacingOrder { get; set; }
+
+    public DateTimeOffset? NfaReplacingStartedAt { get; set; }
 }
 
 // Uses a source generator like the account history: JsonSerializerDefaults.Web (camelCase, case-insensitive), so it reads and writes under AOT.

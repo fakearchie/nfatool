@@ -29,6 +29,18 @@ public sealed partial class SteamAccountHistoryItem : INotifyPropertyChanged
     /// <summary>The Steam ID nfa.pub swapped this account for. A swapped account cannot be replaced again.</summary>
     public string? NfaReplacedBy { get; set; }
 
+    /// <summary>
+    /// When a replacement of this account was sent without a result being saved. The swap may have gone through, so
+    /// it is not offered again; the new account would be on the order's page at nfa.pub.
+    /// </summary>
+    public DateTimeOffset? NfaReplaceUnconfirmedAt { get; set; }
+
+    /// <summary>
+    /// nfa.pub's code for a refusal that is final for this account: E1607 (already replaced), E1616 or E1618 (a
+    /// cooldown or ban, which also ends its warranty) or E1617 (warranty ended).
+    /// </summary>
+    public string? NfaReplaceRefusal { get; set; }
+
     public string? PersonaName { get; set; }
 
     private string? _avatarUrl;
