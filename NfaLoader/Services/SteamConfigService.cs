@@ -58,8 +58,8 @@ internal sealed class SteamConfigService
 
         // Both files that hold the accounts Steam remembers are read before anything is written, so a problem with
         // either one is known before the first file changes.
-        var loginUsers = LoadRememberedAccounts(loginUsersPath);
-        var local = LoadRememberedAccounts(paths.LocalVdfPath);
+        var loginUsers = LoadRememberedAccounts(loginUsersPath, out _);
+        var local = LoadRememberedAccounts(paths.LocalVdfPath, out _);
         AppLog.Info($"Steam remembers {CountUsers(loginUsers)} account(s) before this sign-in.");
         RepairConnectCache(local);
 
@@ -109,9 +109,11 @@ internal sealed class SteamConfigService
         var loginUsersPath = Path.Combine(paths.ConfigPath, "loginusers.vdf");
 
         // Read before writing anything, for the same reason as a sign-in.
-        var loginUsers = LoadRememberedAccounts(loginUsersPath);
-        var local = LoadRememberedAccounts(paths.LocalVdfPath);
-        var localChanged = RepairConnectCache(local) > 0;
+        var loginUsers = LoadRememberedAccounts(loginUsersPath, out _);
+        // A local.vdf that Steam itself cannot read (left half written when Steam was stopped) is always written back
+        // from the copy that replaced it, even when nothing else in it changes.
+        var local = LoadRememberedAccounts(paths.LocalVdfPath, out var localRecovered);
+        var localChanged = RepairConnectCache(local) > 0 || localRecovered;
 
         UpdateConfigVdf(configPath, account.AccountName, account.SteamId);
         AppLog.Info($"Restored config.vdf ({FileLength(configPath)} bytes): \"{configPath}\"");
@@ -222,10 +224,12 @@ internal sealed class SteamConfigService
     /// Steam remembered come back instead of being replaced by the one account being added. With no backup, every
     /// account and login token that can still be found in the file is kept. A sign-in is never stopped by this.
     /// </summary>
-    private static VdfText LoadRememberedAccounts(string path)
+    /// <param name="recovered">True when the file on disk is empty or unreadable, so what is returned is not what Steam has.</param>
+    private static VdfText LoadRememberedAccounts(string path, out bool recovered)
     {
         var name = Path.GetFileName(path);
         var state = VdfDocument.LoadForUpdate(path, out _, out var text, out var error);
+        recovered = state is VdfReadState.Empty or VdfReadState.Unreadable;
         if (state == VdfReadState.Loaded)
         {
             if (VdfText.TryParse(text, out var document))

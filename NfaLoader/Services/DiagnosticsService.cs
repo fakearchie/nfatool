@@ -23,24 +23,29 @@ internal static class DiagnosticsService
         "SetSteamID", "Logged Off", "ConnectionDisconnected", "not auto reconnecting",
     ];
 
-    /// <summary>Writes the report to the Desktop (or the data folder if that fails) and returns its path.</summary>
-    public static string SaveReport()
+    /// <summary>Writes the report to the Desktop, or to the data folder if that fails, and returns where it went.</summary>
+    public static (string Path, bool OnDesktop) SaveReport()
     {
         var report = Redact(BuildReport());
         var name = $"nfa-loader-diagnostics-{DateTime.Now:yyyyMMdd-HHmmss}.txt";
         try
         {
             var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            if (string.IsNullOrEmpty(desktop))
+            {
+                throw new DirectoryNotFoundException("No Desktop folder.");
+            }
+
             var path = Path.Combine(desktop, name);
             File.WriteAllText(path, report, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-            return path;
+            return (path, true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
             var fallback = Path.Combine(AppState.SettingsService.AppFolderPath, name);
             Directory.CreateDirectory(AppState.SettingsService.AppFolderPath);
             File.WriteAllText(fallback, report, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-            return fallback;
+            return (fallback, false);
         }
     }
 

@@ -562,9 +562,13 @@ public sealed partial class SettingsPage : Page, INotifyPropertyChanged
         SaveDiagnosticsButton.IsEnabled = false;
         try
         {
-            var path = await Task.Run(DiagnosticsService.SaveReport);
+            var (path, onDesktop) = await Task.Run(DiagnosticsService.SaveReport);
             AppLog.Info($"Saved a diagnostics report: {path}");
-            AppState.ShowStatus(Loc.Tf("Settings_Status_DiagnosticsSaved_Format", Path.GetFileName(path)), InfoBarSeverity.Success);
+            AppState.ShowStatus(
+                onDesktop
+                    ? Loc.Tf("Settings_Status_DiagnosticsSaved_Format", Path.GetFileName(path))
+                    : Loc.Tf("Settings_Status_DiagnosticsSavedDataFolder_Format", Path.GetFileName(path), Path.GetDirectoryName(path) ?? ""),
+                InfoBarSeverity.Success);
             try
             {
                 // Shows the file selected, ready to drag into a support chat.

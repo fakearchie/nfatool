@@ -479,6 +479,15 @@ public sealed partial class LoginPage : Page, INotifyPropertyChanged
             case SteamSignInOutcome.NoAttempt:
                 ShowStatus(Loc.Tf("Login_SignIn_NoAttempt_Format", name), InfoBarSeverity.Warning);
                 break;
+
+            // The token was not refused in these two cases, so no replacement is offered.
+            case SteamSignInOutcome.Throttled:
+                ShowStatus(Loc.Tf("Login_SignIn_Throttled_Format", name), InfoBarSeverity.Warning);
+                break;
+
+            case SteamSignInOutcome.ServerTrouble:
+                ShowStatus(Loc.Tf("Login_SignIn_ServerTrouble_Format", name, verdict.Detail ?? ""), InfoBarSeverity.Warning);
+                break;
         }
     }
 

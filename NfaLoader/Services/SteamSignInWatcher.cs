@@ -18,11 +18,17 @@ internal enum SteamSignInOutcome
     /// <summary>Steam wrote nothing about signing in within the wait.</summary>
     NoAttempt,
 
+    /// <summary>Steam's servers are limiting sign-ins from this network, so Steam could not sign in yet.</summary>
+    Throttled,
+
+    /// <summary>Steam's servers gave only temporary answers (busy, try another server) within the wait.</summary>
+    ServerTrouble,
+
     /// <summary>Steam's connection log could not be found or read, so nothing can be said.</summary>
     Unknown,
 }
 
-/// <param name="Detail">Steam's own word for a refusal, such as "Invalid Password" or "Expired".</param>
+/// <param name="Detail">Steam's own word for a refusal, such as "Invalid Password", or its last temporary answer.</param>
 /// <param name="OtherSteamId">The account Steam signed in to instead, as a SteamID64.</param>
 internal sealed record SteamSignInVerdict(SteamSignInOutcome Outcome, string? Detail = null, string? OtherSteamId = null);
 
@@ -43,6 +49,20 @@ internal static class SteamSignInWatcher
 
     // "RecvMsgClientLogOnResponse() : [U:1:362013613] 'OK'" or "... : [I:0:0] 'Invalid Password'".
     private static readonly Regex LogOnResponse = new(@"RecvMsgClientLogOnResponse\(\) : \[[A-Za-z]:\d+:(\d+)\] '([^']+)'", RegexOptions.Compiled);
+
+    // Steam's answers that mean the token or the account is dead, the same set the loader's own token check treats as
+    // final (SteamCmException.IsTokenFailure and IsAccountFailure). Written without spaces or case, since Steam's
+    // wording of a result name is "Invalid Password" while the result itself is InvalidPassword.
+    private static readonly HashSet<string> FinalRefusals = new(StringComparer.Ordinal)
+    {
+        "invalidpassword", "invalidparam", "invalidparameter", "accessdenied", "revoked", "expired", "accountlogondenied",
+        "banned", "accountdisabled", "accountlockeddown",
+    };
+
+    private static readonly HashSet<string> RateLimits = new(StringComparer.Ordinal)
+    {
+        "ratelimitexceeded", "accountlogindeniedthrottle",
+    };
 
     public static SteamSignInMark Mark(SteamPaths paths, string steamId)
     {
@@ -69,6 +89,7 @@ internal static class SteamSignInWatcher
         var offset = mark.Offset;
         var pending = "";
         uint? loggingOnWith = null;
+        string? lastTemporary = null;
         var sawLog = File.Exists(mark.LogPath);
 
         while (DateTimeOffset.UtcNow < deadline)
@@ -95,7 +116,7 @@ internal static class SteamSignInWatcher
                 stream.Seek(offset, SeekOrigin.Begin);
                 using var reader = new StreamReader(stream, Encoding.UTF8);
                 chunk = await reader.ReadToEndAsync(cancellationToken);
-                offset = stream.Length;
+                offset = stream.Position;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -135,15 +156,34 @@ internal static class SteamSignInWatcher
                         : new SteamSignInVerdict(SteamSignInOutcome.OtherAccount, OtherSteamId: (SteamId64Base + account).ToString());
                 }
 
-                // A refusal for the account being signed in settles it. One for another account (Steam trying the
-                // previous account first) is not ours, so keep watching.
-                if (account == mark.AccountId || account == 0)
+                // An answer for another account (Steam trying the previous account first) is not ours.
+                if (account != mark.AccountId && account != 0)
+                {
+                    continue;
+                }
+
+                // Only a final answer about the token or the account settles it. Anything else, such as "Try Another
+                // CM" or "Service Unavailable" during Steam maintenance, Steam retries by itself, often successfully.
+                var word = Normalize(result);
+                if (FinalRefusals.Contains(word))
                 {
                     return new SteamSignInVerdict(SteamSignInOutcome.Refused, result);
                 }
+
+                lastTemporary = result;
             }
+        }
+
+        if (lastTemporary is not null)
+        {
+            return new SteamSignInVerdict(
+                RateLimits.Contains(Normalize(lastTemporary)) ? SteamSignInOutcome.Throttled : SteamSignInOutcome.ServerTrouble,
+                lastTemporary);
         }
 
         return new SteamSignInVerdict(sawLog ? SteamSignInOutcome.NoAttempt : SteamSignInOutcome.Unknown);
     }
+
+    private static string Normalize(string result) =>
+        string.Concat(result.Where(char.IsLetter)).ToLowerInvariant();
 }

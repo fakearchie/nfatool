@@ -847,6 +847,7 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
         var cancellationToken = AppState.BeginBusyOperation();
         var invalid = new List<SteamAccountHistoryItem>();
         var tested = 0;
+        var position = 0;
         var unclear = 0;
         string? networkError = null;
         string? rateLimited = null;
@@ -862,8 +863,9 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
                     break;
                 }
 
+                position++;
                 AppState.ShowStatus(
-                    Loc.Tf("History_Status_Testing_Format", tested + 1, accounts.Count, account.AccountTitle),
+                    Loc.Tf("History_Status_Testing_Format", position, accounts.Count, account.AccountTitle),
                     InfoBarSeverity.Informational);
 
                 SteamTokenOnlineValidationResult result;
@@ -1022,7 +1024,11 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
                     !string.Equals(account.SteamId, entry.SteamId, StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(account.AccountName, name, StringComparison.OrdinalIgnoreCase)))
             {
-                entry.AccountName = entry.SteamId;
+                // A login name History already has for this SteamID is kept; the SteamID only stands in for a missing one.
+                entry.AccountName = AppState.HistoryAccounts.FirstOrDefault(account =>
+                        string.Equals(account.SteamId, entry.SteamId, StringComparison.OrdinalIgnoreCase))?.AccountName is { Length: > 0 } stored
+                    ? stored
+                    : entry.SteamId;
             }
 
             // The same match ImportAccounts makes: by SteamID, or by name only for an older entry saved without one.

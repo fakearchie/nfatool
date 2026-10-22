@@ -624,7 +624,13 @@ internal sealed class AccountHistoryService
                     updated++;
                 }
 
-                item.AccountName = accountName;
+                // The SteamID only stands in for a missing name, so it never replaces a login name History already has.
+                if (!string.Equals(accountName, steamId, StringComparison.OrdinalIgnoreCase) ||
+                    string.IsNullOrWhiteSpace(item.AccountName))
+                {
+                    item.AccountName = accountName;
+                }
+
                 item.SteamId = steamId;
                 SetToken(item, eyaToken);
                 item.TokenExpiresAt = entry.TokenExpiresAt;

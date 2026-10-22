@@ -44,10 +44,12 @@ internal static class NfaWarranty
             return Loc.Tf("Nfa_Warranty_ReplacedBy_Format", account.NfaReplacedBy);
         }
 
-        // nfa.pub refused this account for good (banned, cooldown, warranty ended), whatever the order has left.
+        // nfa.pub refused this account for good (banned, cooldown, warranty ended, already replaced), whatever the order has left.
         if (!string.IsNullOrWhiteSpace(account.NfaReplaceRefusal))
         {
-            return Loc.T("Nfa_Warranty_NotCovered");
+            return account.NfaReplaceRefusal == "E1607"
+                ? Loc.T("Nfa_Status_NotCovered_E1607")
+                : Loc.T("Nfa_Warranty_NotCovered");
         }
 
         // Checked before the count: a refusal for a closed window is also recorded as none left.
@@ -88,6 +90,12 @@ internal static class NfaWarranty
                 NfaWarrantyState.Replaced,
                 Loc.T("Nfa_Status_Replaced"),
                 Loc.Tf("Nfa_Status_Replaced_Detail_Format", account.NfaReplacedBy));
+        }
+
+        // E1607: nfa.pub already swapped this account, but the loader never got the new one.
+        if (account.NfaReplaceRefusal == "E1607")
+        {
+            return new(NfaWarrantyState.Replaced, Loc.T("Nfa_Status_Replaced"), Loc.T("Nfa_Status_NotCovered_E1607"));
         }
 
         if (account.NfaReplaceRefusal is { Length: > 0 } refusal)
