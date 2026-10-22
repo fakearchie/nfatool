@@ -562,7 +562,7 @@ internal sealed class AccountHistoryService
         }
     }
 
-    /// <summary>Merges imported accounts (deduplicated and overwritten by SteamID/account name). Importing does not update "last sign-in".</summary>
+    /// <summary>Merges imported accounts (matched by SteamID, or by account name for an older entry without one). Importing does not update "last sign-in".</summary>
     public (int Added, int Updated) ImportAccounts(IReadOnlyList<AccountImportEntry> entries)
     {
         _fileGate.Wait();
@@ -919,7 +919,11 @@ internal sealed class AccountHistoryService
             }
         }
 
+        // The name only finds an entry saved without a SteamID (older History files). An entry with another SteamID is another
+        // account that happens to share the name, such as a label or an e-mail used for several accounts, and taking it over would
+        // replace that account's token.
         return accounts.FirstOrDefault(account =>
+            string.IsNullOrWhiteSpace(account.SteamId) &&
             string.Equals(account.AccountName, accountName, StringComparison.OrdinalIgnoreCase));
     }
 

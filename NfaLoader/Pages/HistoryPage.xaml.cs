@@ -52,6 +52,9 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
     /// <summary>Suppresses the SelectionChanged callback while the filter dropdown is rebuilt, to avoid a reentrant rebuild.</summary>
     private bool _suppressGroupFilterChange;
 
+    /// <summary>Suppresses the account list's SelectionChanged callback while RebuildView swaps in the new items (see RebuildView).</summary>
+    private bool _rebuildingView;
+
     /// <summary>Whether the page is active (navigated to and not left yet); used to defer rebuilds while hidden.</summary>
     private bool _isActive;
 
@@ -205,19 +208,29 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
                 ? AccountHistoryService.GetAccountKey(current)
                 : null;
 
-        _viewItems.Clear();
-        foreach (var account in filtered)
+        // Clear() drops the selection for a moment. Handling that in SelectionChanged would empty the note box and forget which account
+        // it belongs to, so the note being typed would come back as the old note from disk. UpdateDetail below handles the swap instead.
+        _rebuildingView = true;
+        try
         {
-            _viewItems.Add(account);
-        }
+            _viewItems.Clear();
+            foreach (var account in filtered)
+            {
+                _viewItems.Add(account);
+            }
 
-        var active = activeKey is null
-            ? null
-            : _viewItems.FirstOrDefault(account =>
-                string.Equals(AccountHistoryService.GetAccountKey(account), activeKey, StringComparison.OrdinalIgnoreCase));
-        // With no selection request (or the old selection filtered out or deleted), leave nothing selected: do not fall back to the first item,
-        // or the detail panel shows the first account's avatar and profile before the user has clicked any account.
-        HistoryAccountList.SelectedItem = active;
+            var active = activeKey is null
+                ? null
+                : _viewItems.FirstOrDefault(account =>
+                    string.Equals(AccountHistoryService.GetAccountKey(account), activeKey, StringComparison.OrdinalIgnoreCase));
+            // With no selection request (or the old selection filtered out or deleted), leave nothing selected: do not fall back to the first item,
+            // or the detail panel shows the first account's avatar and profile before the user has clicked any account.
+            HistoryAccountList.SelectedItem = active;
+        }
+        finally
+        {
+            _rebuildingView = false;
+        }
 
         HistoryEmptyPanel.Visibility = _viewItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         UpdateSummaryTexts();
@@ -321,6 +334,12 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
 
     private void HistoryAccountList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        // RebuildView updates the detail panel and controls itself once the list is refilled.
+        if (_rebuildingView)
+        {
+            return;
+        }
+
         UpdateDetail();
         UpdateControlsEnabled();
     }
@@ -978,20 +997,45 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
                 SteamId = steamId,
                 TokenExpiresAt = info.ExpiresAt,
                 TokenIsValid = info.IsValid,
-                TokenStatus = info.Status,
-                AlreadyExists = AppState.HistoryAccounts.Any(account =>
-                    string.Equals(account.SteamId, steamId, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(account.AccountName, accountName, StringComparison.OrdinalIgnoreCase))
+                TokenStatus = info.Status
             });
+        }
+
+        // The first column is only a login name when it names one account. Several accounts under one e-mail, or a label such as
+        // "Login:" in front of every token, would all be saved under one name, and Steam's files and steam.exe know an account by its name.
+        var sharedNames = entries
+            .GroupBy(entry => entry.AccountName, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in entries)
+        {
+            var name = entry.AccountName;
+            if (name.Length == 0 ||
+                name.EndsWith(':') ||
+                sharedNames.Contains(name) ||
+                AppState.HistoryAccounts.Any(account =>
+                    !string.IsNullOrWhiteSpace(account.SteamId) &&
+                    !string.Equals(account.SteamId, entry.SteamId, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(account.AccountName, name, StringComparison.OrdinalIgnoreCase)))
+            {
+                entry.AccountName = entry.SteamId;
+            }
+
+            // The same match ImportAccounts makes: by SteamID, or by name only for an older entry saved without one.
+            entry.AlreadyExists = AppState.HistoryAccounts.Any(account =>
+                string.Equals(account.SteamId, entry.SteamId, StringComparison.OrdinalIgnoreCase) ||
+                (string.IsNullOrWhiteSpace(account.SteamId) &&
+                    string.Equals(account.AccountName, entry.AccountName, StringComparison.OrdinalIgnoreCase)));
         }
 
         return (entries, invalidCount);
     }
 
     /// <summary>
-    /// Parses one line of credentials. Tries each candidate split in turn ("----" columns, whitespace columns) and accepts the first whose token yields a SteamID.
+    /// Parses one line of credentials. Tries each candidate split in turn ("----" columns, whitespace columns, the whole line) and accepts the first whose token yields a SteamID.
     /// Single-column candidates come before joined ones, so a multi-column line such as "account----password----token" yields a clean token
-    /// instead of storing the whole "password----token" string as the token.
+    /// instead of storing the whole "password----token" string as the token. An empty account name is replaced by the SteamID in ParseImportText.
     /// </summary>
     private static bool TryParseCredentials(
         string line,
@@ -1001,7 +1045,7 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
     {
         foreach (var (name, candidateToken) in EnumerateCredentialCandidates(line))
         {
-            if (name.Length == 0 || candidateToken.Length == 0)
+            if (candidateToken.Length == 0)
             {
                 continue;
             }
@@ -1062,6 +1106,9 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
                 yield return (fields[0].Trim(), fields[i].Trim());
             }
         }
+
+        // Last, the token anywhere in the line with no usable name: a bare token, "steamid:token", or a token followed by a note.
+        yield return ("", line);
     }
 
     private async void OneClickHistoryQueryButton_Click(object sender, RoutedEventArgs e)

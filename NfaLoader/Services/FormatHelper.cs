@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -5,30 +7,74 @@ using NfaLoader.Localization;
 
 namespace NfaLoader.Services;
 
-internal static class FormatHelper
+internal static partial class FormatHelper
 {
-    /// <summary>Fixes a common case error in the token header from pasting (EyAi → eyAi).</summary>
+    /// <summary>The header of every Steam login token: {"typ": "JWT", "alg": "EdDSA"} in base64url.</summary>
+    private const string SteamTokenHeader = "eyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0";
+
+    /// <summary>
+    /// Reads the login token out of pasted text, for the Login page box, the History import and nfa.pub account lines.
+    /// A label, quotes, a note, other lines, invisible characters and line breaks inside the token are all dropped.
+    /// Text with no token in it keeps the old handling, so Inspect can still say what is wrong with it.
+    /// </summary>
     public static string NormalizeToken(string token)
     {
-        token = token.Replace(
-            "EyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0",
-            "eyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0",
-            StringComparison.Ordinal);
+        // Zero-width spaces and the BOM come along when a token is copied from a web page or a chat, and are never part of a token.
+        token = RemoveCharacters(token, c => char.GetUnicodeCategory(c) == UnicodeCategory.Format);
 
-        // A whole account line pasted or delivered as "steamid----token----key:value...": keep only the token.
-        if (token.Contains("----", StringComparison.Ordinal))
+        // Fixes a common case error in the token header from pasting (EyAi → eyAi).
+        token = token.Replace("EyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0", SteamTokenHeader, StringComparison.Ordinal);
+
+        // Account lines are split on "----" before the token is matched: '-' is a base64url character,
+        // so a match over the whole line would run on into the "----key:value" text after the token.
+        var segments = token.Split("----", StringSplitOptions.TrimEntries);
+        foreach (var segment in segments)
         {
-            token = token
-                .Split("----", StringSplitOptions.TrimEntries)
-                .FirstOrDefault(LooksLikeToken) ?? token;
+            if (FindToken(segment) is { } found)
+            {
+                return found;
+            }
         }
 
-        return token;
+        // A whole account line pasted or delivered as "steamid----token----key:value...": keep only the token.
+        return segments.Length > 1 ? segments.FirstOrDefault(LooksLikeToken) ?? token : token;
     }
 
     /// <summary>A JWT shape: starts with the Steam token header prefix and has three dot-separated parts.</summary>
     public static bool LooksLikeToken(string value) =>
         value.StartsWith("eyAi", StringComparison.Ordinal) && value.Count(c => c == '.') == 2;
+
+    private static string? FindToken(string text)
+    {
+        var asWritten = TokenPattern().Match(text);
+        if (asWritten.Success && IsCompleteSteamToken(asWritten.Value))
+        {
+            return asWritten.Value;
+        }
+
+        // A token copied from a narrow window can be broken across lines. With the whitespace removed, a note after the token
+        // would run into the signature, so this reading is only used when it gives a complete Steam token.
+        var joined = SteamTokenPattern().Match(RemoveCharacters(text, char.IsWhiteSpace));
+        if (joined.Success && IsCompleteSteamToken(joined.Value))
+        {
+            return joined.Value;
+        }
+
+        return asWritten.Success ? asWritten.Value : null;
+    }
+
+    private static bool IsCompleteSteamToken(string token) =>
+        token.StartsWith(SteamTokenHeader + ".", StringComparison.Ordinal) &&
+        token.Length - token.LastIndexOf('.') - 1 == JwtTokenService.EdDsaSignatureLength;
+
+    private static string RemoveCharacters(string text, Func<char, bool> remove) =>
+        text.Any(remove) ? new string(text.Where(c => !remove(c)).ToArray()) : text;
+
+    [GeneratedRegex(@"eyAi[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", RegexOptions.CultureInvariant)]
+    private static partial Regex TokenPattern();
+
+    [GeneratedRegex(SteamTokenHeader + @"\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", RegexOptions.CultureInvariant)]
+    private static partial Regex SteamTokenPattern();
 
     public static string FormatRemaining(TimeSpan remaining)
     {

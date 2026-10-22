@@ -7,6 +7,9 @@ namespace NfaLoader.Services;
 
 public sealed class JwtTokenService
 {
+    /// <summary>Length of an Ed25519 signature (64 bytes) in base64url without padding. Steam signs its tokens with EdDSA.</summary>
+    internal const int EdDsaSignatureLength = 86;
+
     public JwtValidationResult Validate(string refreshToken)
     {
         var info = Inspect(refreshToken);
@@ -28,6 +31,14 @@ public sealed class JwtTokenService
             return Invalid(Loc.T("Jwt_Status_BadFormat"));
         }
 
+        // Only the payload is decoded below, but Steam checks the whole string. Text stuck to the header or the signature, or a
+        // signature cut short, would otherwise show as a valid token here and then fail at Steam or leave Steam at its sign-in screen.
+        if (Array.Exists(parts, part => part.Length == 0 || !part.All(IsBase64UrlChar)) ||
+            !TryReadHeaderAlgorithm(parts[0], out var algorithm))
+        {
+            return Invalid(Loc.T("Jwt_Status_IncompleteOrExtra"));
+        }
+
         JsonDocument payload;
         try
         {
@@ -47,6 +58,12 @@ public sealed class JwtTokenService
         if (root.ValueKind != JsonValueKind.Object)
         {
             return Invalid(Loc.T("Jwt_Status_Unparseable"));
+        }
+
+        // The SteamID and expiry are still returned, so the account card and support can see which account the cut-off token belongs to.
+        if (algorithm == "EdDSA" && parts[2].Length != EdDsaSignatureLength)
+        {
+            return Invalid(Loc.T("Jwt_Status_IncompleteOrExtra"), GetSteamId(root), GetExpiresAt(root));
         }
 
         if (!root.TryGetProperty("iss", out var issuer) ||
@@ -130,6 +147,34 @@ public sealed class JwtTokenService
         }
 
         return false;
+    }
+
+    private static bool IsBase64UrlChar(char c) => char.IsAsciiLetterOrDigit(c) || c is '-' or '_';
+
+    /// <summary>Decodes the header, which must be a JSON object, and reads its "alg" (null when it has none).</summary>
+    private static bool TryReadHeaderAlgorithm(string encodedHeader, out string? algorithm)
+    {
+        algorithm = null;
+        try
+        {
+            using var header = JsonDocument.Parse(Base64UrlDecode(encodedHeader));
+            if (header.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            if (header.RootElement.TryGetProperty("alg", out var alg) && alg.ValueKind == JsonValueKind.String)
+            {
+                algorithm = alg.GetString();
+            }
+
+            return true;
+        }
+        catch (Exception)
+        {
+            // Same as the payload: pasted text is untrusted, so a header that does not decode is reported, never thrown.
+            return false;
+        }
     }
 
     private static string Base64UrlDecode(string value)

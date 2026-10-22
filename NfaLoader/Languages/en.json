@@ -532,6 +532,7 @@
     "Jwt_Status_MissingSteamId": "The login token is missing a SteamID.",
     "Jwt_Status_MissingExpiry": "The login token is missing an expiry time.",
     "Jwt_Status_BadFormat": "The login token format is invalid.",
+    "Jwt_Status_IncompleteOrExtra": "The login token is incomplete or has extra characters.",
     "Jwt_Status_Unparseable": "The login token could not be processed.",
     "Jwt_Status_NotSteamToken": "The login token is not a Steam token.",
     "Jwt_Status_MissingClientAudience": "The login token is missing the client audience.",
