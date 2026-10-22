@@ -50,6 +50,53 @@ internal sealed class SteamCryptoService
         }
     }
 
+    /// <summary>Decrypts a saved login from local.vdf, or returns null when Windows cannot decrypt it for this account.</summary>
+    public string? TryDecryptFromHex(string hex, string accountName)
+    {
+        byte[] data;
+        try
+        {
+            data = Convert.FromHexString(hex);
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+
+        var dataBlob = CreateBlob(data);
+        var entropyBlob = CreateBlob(Encoding.UTF8.GetBytes(accountName));
+        try
+        {
+            if (!CryptUnprotectData(
+                    ref dataBlob,
+                    IntPtr.Zero,
+                    ref entropyBlob,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    CryptprotectUiForbidden,
+                    out var plainBlob))
+            {
+                return null;
+            }
+
+            try
+            {
+                var output = new byte[plainBlob.cbData];
+                Marshal.Copy(plainBlob.pbData, output, 0, output.Length);
+                return Encoding.UTF8.GetString(output);
+            }
+            finally
+            {
+                LocalFree(plainBlob.pbData);
+            }
+        }
+        finally
+        {
+            FreeBlob(dataBlob);
+            FreeBlob(entropyBlob);
+        }
+    }
+
     private static DataBlob CreateBlob(byte[] data)
     {
         var blob = new DataBlob
@@ -74,6 +121,16 @@ internal sealed class SteamCryptoService
     private static extern bool CryptProtectData(
         ref DataBlob pDataIn,
         string szDataDescr,
+        ref DataBlob pOptionalEntropy,
+        IntPtr pvReserved,
+        IntPtr pPromptStruct,
+        int dwFlags,
+        out DataBlob pDataOut);
+
+    [DllImport("crypt32.dll", SetLastError = true)]
+    private static extern bool CryptUnprotectData(
+        ref DataBlob pDataIn,
+        IntPtr ppszDataDescr,
         ref DataBlob pOptionalEntropy,
         IntPtr pvReserved,
         IntPtr pPromptStruct,

@@ -157,16 +157,25 @@ internal static class DiagnosticsService
                 : $"{file}: MISSING");
         }
 
-        var connectCache = VdfDocument.GetObject(
-            VdfDocument.GetObject(
-                VdfDocument.GetObject(
-                    VdfDocument.GetObject(
-                        VdfDocument.GetObject(VdfDocument.LoadOrEmpty(paths.LocalVdfPath), "MachineUserConfigStore") ?? [],
-                        "Software") ?? [],
-                    "Valve") ?? [],
-                "Steam") ?? [],
-            "ConnectCache") ?? [];
-        report.AppendLine($"Saved logins in local.vdf: {connectCache.Count}");
+        var configPath = Path.Combine(paths.ConfigPath, "config.vdf");
+        if (File.Exists(configPath) && VdfText.TryParse(File.ReadAllText(configPath), out var config))
+        {
+            report.AppendLine($"Accounts in config.vdf: {config.GetObjectKeys("InstallConfigStore", "Software", "Valve", "Steam", "Accounts").Count}");
+        }
+
+        // Read the way Steam reads it: case does not matter and the first match wins.
+        string[] connectCachePath = ["MachineUserConfigStore", "Software", "Valve", "Steam", "ConnectCache"];
+        var local = File.Exists(paths.LocalVdfPath) && VdfText.TryParse(File.ReadAllText(paths.LocalVdfPath), out var parsed)
+            ? parsed
+            : null;
+        var connectCache = local?.GetValues(connectCachePath) ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        report.AppendLine(local is null
+            ? "local.vdf: missing or cannot be read"
+            : $"Saved logins in local.vdf: {connectCache.Count}, under {local.DescribePath(connectCachePath) ?? "(no ConnectCache yet)"}");
+        if (local?.CountShadowedObjects(connectCachePath) is > 0 and var shadowed)
+        {
+            report.AppendLine($"  {shadowed} extra block(s) on that path that Steam never reads (left by an older loader version; the next sign-in merges them)");
+        }
 
         var users = VdfDocument.GetObject(VdfDocument.LoadOrEmpty(loginUsersPath), "users") ?? [];
         report.AppendLine($"Accounts Steam remembers (loginusers.vdf): {users.Count}");

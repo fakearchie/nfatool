@@ -204,11 +204,13 @@ public sealed partial class CachedAccountsPage : Page, INotifyPropertyChanged
 
         try
         {
-            var restored = await Task.Run(() => AppState.LoginService.RestoreCachedLogin(account, progress));
-            Reload(restored.CacheKey);
+            var savedLogin = await Task.Run(() => AppState.LoginService.RestoreCachedLogin(account, progress));
+            Reload(account.CacheKey);
             AppState.ShowStatus(
-                Loc.Tf("Cached_Restore_Success_Format", restored.AccountName, restored.SteamId),
-                InfoBarSeverity.Success);
+                savedLogin
+                    ? Loc.Tf("Cached_Restore_Success_Format", account.AccountName, account.SteamId)
+                    : Loc.Tf("Cached_Restore_NoSavedLogin_Format", account.AccountName),
+                savedLogin ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
         }
         catch (Exception ex)
         {

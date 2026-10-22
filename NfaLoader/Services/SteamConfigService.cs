@@ -8,6 +8,12 @@ namespace NfaLoader.Services;
 
 internal sealed class SteamConfigService
 {
+    // Where Steam keeps the saved login of each account in local.vdf, and the accounts list in config.vdf. Steam reads
+    // these keys without regard to case, and some installs spell them "valve" and "steam".
+    private static readonly string[] ConnectCachePath = ["MachineUserConfigStore", "Software", "Valve", "Steam", "ConnectCache"];
+    private static readonly string[] ConfigSteamPath = ["InstallConfigStore", "Software", "Valve", "Steam"];
+    private static readonly string[] ConfigAccountsPath = [.. ConfigSteamPath, "Accounts"];
+
     public IReadOnlyList<CachedSteamLoginAccount> GetLoginAccounts(SteamPaths paths)
     {
         var loginUsersPath = Path.Combine(paths.ConfigPath, "loginusers.vdf");
@@ -28,6 +34,16 @@ internal sealed class SteamConfigService
         return normalized;
     }
 
+    /// <summary>Joins two reads of the remembered accounts. For an account in both, the first list's entry wins.</summary>
+    public static IReadOnlyList<CachedSteamLoginAccount> CombineLoginAccounts(
+        IReadOnlyList<CachedSteamLoginAccount> preferred,
+        IReadOnlyList<CachedSteamLoginAccount> fallback) =>
+        NormalizeLoginAccounts(preferred.Concat(fallback));
+
+    /// <summary>
+    /// Writes what Steam needs to sign in to the account by itself. Only the entries for this account are changed in
+    /// Steam's files, the way tools that work reliably do it; everything else in them stays exactly as Steam wrote it.
+    /// </summary>
     public void UpdateLoginFiles(
         SteamPaths paths,
         string accountName,
@@ -40,20 +56,23 @@ internal sealed class SteamConfigService
         var configPath = Path.Combine(paths.ConfigPath, "config.vdf");
         var loginUsersPath = Path.Combine(paths.ConfigPath, "loginusers.vdf");
 
-        // Both files that hold the accounts Steam remembers are read before anything is written. If either cannot be
-        // read, the sign-in stops here with every file untouched.
+        // Both files that hold the accounts Steam remembers are read before anything is written, so a problem with
+        // either one is known before the first file changes.
         var loginUsers = LoadRememberedAccounts(loginUsersPath);
         var local = LoadRememberedAccounts(paths.LocalVdfPath);
         AppLog.Info($"Steam remembers {CountUsers(loginUsers)} account(s) before this sign-in.");
+        RepairConnectCache(local);
 
         UpdateConfigVdf(configPath, accountName, steamId);
         AppLog.Info($"Wrote config.vdf ({FileLength(configPath)} bytes): \"{configPath}\"");
 
-        UpdateLoginUsersVdf(loginUsersPath, loginUsers, accountName, steamId);
+        MarkSignedIn(loginUsers, accountName, steamId, accountName);
+        SaveAndBackUp(loginUsersPath, loginUsers);
         AppLog.Info($"Wrote loginusers.vdf ({FileLength(loginUsersPath)} bytes, {CountUsers(loginUsers)} account(s)): \"{loginUsersPath}\"");
 
-        UpdateLocalVdf(paths.LocalVdfPath, local, accountCrc32, encryptedJwt);
-        AppLog.Info($"Wrote local.vdf ({FileLength(paths.LocalVdfPath)} bytes): \"{paths.LocalVdfPath}\"");
+        local.SetValue(ConnectCachePath, accountCrc32, encryptedJwt);
+        SaveAndBackUp(paths.LocalVdfPath, local);
+        AppLog.Info($"Wrote local.vdf ({FileLength(paths.LocalVdfPath)} bytes), saved login under {local.DescribePath(ConnectCachePath)}/{accountCrc32}: \"{paths.LocalVdfPath}\"");
     }
 
     /// <summary>
@@ -78,7 +97,11 @@ internal sealed class SteamConfigService
         }
     }
 
-    public void RestoreLoginFiles(SteamPaths paths, CachedSteamLoginAccount account)
+    /// <summary>
+    /// Selects a cached account in Steam again. Returns whether Steam has a working saved login for it, which is what
+    /// lets Steam sign in without asking for the password.
+    /// </summary>
+    public bool RestoreLoginFiles(SteamPaths paths, CachedSteamLoginAccount account)
     {
         Directory.CreateDirectory(paths.ConfigPath);
 
@@ -87,30 +110,76 @@ internal sealed class SteamConfigService
 
         // Read before writing anything, for the same reason as a sign-in.
         var loginUsers = LoadRememberedAccounts(loginUsersPath);
-        var local = string.IsNullOrWhiteSpace(account.ConnectCacheToken)
-            ? null
-            : LoadRememberedAccounts(paths.LocalVdfPath);
+        var local = LoadRememberedAccounts(paths.LocalVdfPath);
+        var localChanged = RepairConnectCache(local) > 0;
 
         UpdateConfigVdf(configPath, account.AccountName, account.SteamId);
         AppLog.Info($"Restored config.vdf ({FileLength(configPath)} bytes): \"{configPath}\"");
 
-        RestoreLoginUsersVdf(loginUsersPath, loginUsers, account);
+        MarkSignedIn(
+            loginUsers,
+            account.AccountName,
+            account.SteamId,
+            string.IsNullOrWhiteSpace(account.PersonaName) ? account.AccountName : account.PersonaName);
+        SaveAndBackUp(loginUsersPath, loginUsers);
         AppLog.Info($"Restored loginusers.vdf ({FileLength(loginUsersPath)} bytes, {CountUsers(loginUsers)} account(s)): \"{loginUsersPath}\"");
 
-        // Write back the account's original ConnectCache token: Steam needs it to sign in automatically without a password; without it the account is only preselected and still needs a manual sign-in.
-        if (local is not null)
+        // The login Steam has saved now is newer than the cached copy whenever the account was used in Steam since it
+        // was cached, and Steam replaces a login token each time it renews it. So the cached copy only fills a gap.
+        var key = Crc32.ComputeSteamAccountKey(account.AccountName);
+        bool savedLogin;
+        if (!string.IsNullOrWhiteSpace(local.GetValue([.. ConnectCachePath, key])))
         {
-            UpdateLocalVdf(
-                paths.LocalVdfPath,
-                local,
-                Crc32.ComputeSteamAccountKey(account.AccountName),
-                account.ConnectCacheToken!);
-            AppLog.Info($"Restored local.vdf ConnectCache ({FileLength(paths.LocalVdfPath)} bytes): \"{paths.LocalVdfPath}\"");
+            AppLog.Info("Steam still has a saved login for this account, so it was kept instead of the cached copy.");
+            savedLogin = true;
+        }
+        else if (IsUsableSavedLogin(account))
+        {
+            local.SetValue(ConnectCachePath, key, account.ConnectCacheToken!);
+            localChanged = true;
+            AppLog.Info("Wrote the cached saved login back to local.vdf.");
+            savedLogin = true;
         }
         else
         {
-            AppLog.Warn("Cached account has no ConnectCache token, so Steam may need a manual sign-in after the restore.");
+            AppLog.Warn("There is no working saved login for this account, so Steam will ask for its password.");
+            savedLogin = false;
         }
+
+        if (localChanged)
+        {
+            SaveAndBackUp(paths.LocalVdfPath, local);
+            AppLog.Info($"Restored local.vdf ({FileLength(paths.LocalVdfPath)} bytes): \"{paths.LocalVdfPath}\"");
+        }
+
+        return savedLogin;
+    }
+
+    // A cached login is only written back if Windows can still decrypt it for this account and it has not expired.
+    // Anything else would only replace a missing login with one Steam refuses.
+    private static bool IsUsableSavedLogin(CachedSteamLoginAccount account)
+    {
+        if (string.IsNullOrWhiteSpace(account.ConnectCacheToken))
+        {
+            AppLog.Warn("The cached account has no saved login.");
+            return false;
+        }
+
+        var token = new SteamCryptoService().TryDecryptFromHex(account.ConnectCacheToken, account.AccountName);
+        if (token is null)
+        {
+            AppLog.Warn("The cached saved login cannot be decrypted for this Windows user and account name.");
+            return false;
+        }
+
+        var info = new JwtTokenService().Inspect(token);
+        if (!info.IsValid)
+        {
+            AppLog.Warn($"The cached saved login cannot be used: {info.Status}");
+            return false;
+        }
+
+        return true;
     }
 
     private static long FileLength(string path)
@@ -153,23 +222,30 @@ internal sealed class SteamConfigService
     /// Steam remembered come back instead of being replaced by the one account being added. With no backup, every
     /// account and login token that can still be found in the file is kept. A sign-in is never stopped by this.
     /// </summary>
-    private static Dictionary<string, object> LoadRememberedAccounts(string path)
+    private static VdfText LoadRememberedAccounts(string path)
     {
         var name = Path.GetFileName(path);
-        var state = VdfDocument.LoadForUpdate(path, out var document, out var text, out var error);
+        var state = VdfDocument.LoadForUpdate(path, out _, out var text, out var error);
         if (state == VdfReadState.Loaded)
         {
-            SaveBackup(name, text);
-            return document;
+            if (VdfText.TryParse(text, out var document))
+            {
+                SaveBackup(name, text);
+                return document;
+            }
+
+            state = VdfReadState.Unreadable;
+            error = "the loader cannot edit its layout";
         }
 
         if (state == VdfReadState.Missing)
         {
-            return document;
+            return VdfText.Empty();
         }
 
         var backupPath = Path.Combine(BackupFolder, name);
-        if (VdfDocument.LoadForUpdate(backupPath, out var backup, out _, out _) == VdfReadState.Loaded)
+        if (VdfDocument.LoadForUpdate(backupPath, out _, out var backupText, out _) == VdfReadState.Loaded &&
+            VdfText.TryParse(backupText, out var backup))
         {
             AppLog.Warn($"{name} could not be read ({error ?? "empty"}), so the copy saved at {File.GetLastWriteTime(backupPath):yyyy-MM-dd HH:mm} was used instead.");
             return backup;
@@ -179,22 +255,11 @@ internal sealed class SteamConfigService
         {
             // Nothing is left in the file and there is no earlier copy, so there is nothing to lose by starting it fresh.
             AppLog.Warn($"{name} is empty and there is no earlier copy, so it is started fresh.");
-            return document;
+            return VdfText.Empty();
         }
 
         // Keep the file as it was, then carry on with whatever can still be found in it.
-        string raw;
-        try
-        {
-            raw = File.ReadAllText(path);
-            SaveBackup($"{name}.unreadable-{DateTime.Now:yyyyMMdd-HHmmss}", raw);
-        }
-        catch (Exception ex)
-        {
-            AppLog.Warn($"Could not read {name} to rescue its entries: {ex.Message}");
-            raw = "";
-        }
-
+        var raw = KeepUnreadableCopy(path);
         var salvaged = name.Equals("local.vdf", StringComparison.OrdinalIgnoreCase)
             ? SalvageConnectCache(raw)
             : SalvageLoginUsers(raw);
@@ -202,41 +267,72 @@ internal sealed class SteamConfigService
         return salvaged;
     }
 
-    // Pulls each "<SteamID64>" { "key" "value" ... } block out of a loginusers.vdf that does not parse as a whole.
-    private static Dictionary<string, object> SalvageLoginUsers(string text)
+    // Saves a file that could not be read next to the backups, for support, and returns its text.
+    private static string KeepUnreadableCopy(string path)
     {
-        var users = new Dictionary<string, object>(StringComparer.Ordinal);
-        foreach (Match block in Regex.Matches(text, @"""(7656\d{13})""\s*\{([^{}]*)\}"))
+        var name = Path.GetFileName(path);
+        try
         {
-            var user = new Dictionary<string, object>(StringComparer.Ordinal);
-            foreach (Match pair in Regex.Matches(block.Groups[2].Value, @"""([^""\r\n]*)""[ \t]+""([^""\r\n]*)"""))
-            {
-                user[pair.Groups[1].Value] = pair.Groups[2].Value;
-            }
-
-            users[block.Groups[1].Value] = user;
+            var raw = File.ReadAllText(path);
+            SaveBackup($"{name}.unreadable-{DateTime.Now:yyyyMMdd-HHmmss}", raw);
+            return raw;
         }
-
-        return new Dictionary<string, object>(StringComparer.Ordinal) { ["users"] = users };
+        catch (Exception ex)
+        {
+            AppLog.Warn($"Could not read {name} to rescue its entries: {ex.Message}");
+            return "";
+        }
     }
 
-    // Pulls each ConnectCache login token ("<crc32>1" "<hex>") out of a local.vdf that does not parse as a whole.
-    private static Dictionary<string, object> SalvageConnectCache(string text)
+    // Pulls each "<SteamID64>" { "key" "value" ... } block out of a loginusers.vdf that does not parse as a whole.
+    private static VdfText SalvageLoginUsers(string text)
     {
-        var local = new Dictionary<string, object>(StringComparer.Ordinal);
-        var connectCache = EnsurePath(local, "MachineUserConfigStore", "Software", "Valve", "Steam", "ConnectCache");
-        foreach (Match pair in Regex.Matches(text, @"""([0-9a-fA-F]{8}1)""\s+""([0-9a-fA-F]+)"""))
+        var users = VdfText.Empty();
+        foreach (Match block in Regex.Matches(text, @"""(7656\d{13})""\s*\{([^{}]*)\}"))
         {
-            connectCache[pair.Groups[1].Value] = pair.Groups[2].Value;
+            foreach (Match pair in Regex.Matches(block.Groups[2].Value, @"""([^""\r\n]*)""[ \t]+""([^""\r\n]*)"""))
+            {
+                users.SetValue(["users", block.Groups[1].Value], pair.Groups[1].Value, pair.Groups[2].Value);
+            }
+        }
+
+        return users;
+    }
+
+    // Pulls each ConnectCache login token out of a local.vdf that does not parse as a whole. The key is crc32 of the
+    // account name in hex without leading zeros, plus "1", so it can be as short as two characters; the value is a
+    // long hex string.
+    private static VdfText SalvageConnectCache(string text)
+    {
+        var local = VdfText.Empty();
+        foreach (Match pair in Regex.Matches(text, @"""([0-9a-fA-F]{1,8}1)""\s+""([0-9a-fA-F]{64,})"""))
+        {
+            local.SetValue(ConnectCachePath, pair.Groups[1].Value, pair.Groups[2].Value);
         }
 
         return local;
     }
 
-    private static int CountSalvaged(Dictionary<string, object> document) =>
-        GetPath(document, "MachineUserConfigStore", "Software", "Valve", "Steam", "ConnectCache") is { } cache
-            ? cache.Count
+    private static int CountSalvaged(VdfText document) =>
+        document.DescribePath(ConnectCachePath) is not null
+            ? document.GetValues(ConnectCachePath).Count
             : CountUsers(document);
+
+    /// <summary>
+    /// Merges the extra ConnectCache blocks older loader versions added next to Steam's own into the one Steam reads,
+    /// and logs where the saved logins are. Returns how many blocks were merged.
+    /// </summary>
+    private static int RepairConnectCache(VdfText local)
+    {
+        var merged = local.MergeShadowedObjects(ConnectCachePath);
+        if (merged > 0)
+        {
+            AppLog.Warn($"local.vdf had {merged} extra block(s) next to Steam's own that Steam never reads, most likely added by an older loader version. Their saved logins were moved into the block Steam reads.");
+        }
+
+        AppLog.Info($"Saved logins in local.vdf: {local.GetValues(ConnectCachePath).Count}, under {local.DescribePath(ConnectCachePath) ?? "(none yet)"}.");
+        return merged;
+    }
 
     private static void SaveBackup(string name, string text)
     {
@@ -255,132 +351,68 @@ internal sealed class SteamConfigService
         }
     }
 
-    private static int CountUsers(Dictionary<string, object> loginUsers) =>
-        TryGetUsers(loginUsers, out var users) ? users.Values.OfType<Dictionary<string, object>>().Count() : 0;
+    private static int CountUsers(VdfText loginUsers) => loginUsers.GetObjectKeys("users").Count;
 
+    /// <summary>
+    /// Adds the account to Steam's accounts list in config.vdf and turns off "always show the account picker", without
+    /// touching anything else in the file. Rebuilding config.vdf instead, as earlier versions did, deleted the Steam
+    /// Guard "remember this PC" tokens of every account along with the rest of Steam's settings.
+    /// </summary>
     private static void UpdateConfigVdf(string path, string accountName, string steamId)
     {
-        // Matches the original binary (sub_140003640): config.vdf is built from scratch and overwritten whole,
-        // never read or merged with the old file. The old code used LoadOrEmpty to read the user's existing config.vdf
-        // (often 20KB+) and round-tripped it through our hand-written VDF parser and serializer. If the round trip broke
-        // any structure, Steam could not read config.vdf on start and reset it, also ignoring the auto sign-in we
-        // wrote to loginusers.vdf/local.vdf, and stopped at the sign-in screen. This was the root cause of "the sign-in flow
-        // succeeded and Steam started, but it did not sign in automatically", seen only on some machines
-        // (depending on whether that machine's config.vdf had content our parser handled badly). The original binary
-        // just writes the three-entry minimal template below, which avoids round-trip damage entirely.
-        var config = new Dictionary<string, object>(StringComparer.Ordinal);
-        var steam = EnsurePath(config, "InstallConfigStore", "Software", "Valve", "Steam");
-
-        steam["AutoUpdateWindowEnabled"] = "0";
-        steam["MTBF"] = Random.Shared.Next(100000000, 999999999).ToString();
-
-        var accounts = EnsureObject(steam, "Accounts");
-        accounts[accountName] = new Dictionary<string, object>
+        var config = LoadConfig(path);
+        config.SetValue([.. ConfigAccountsPath, accountName], "SteamID", steamId);
+        if (config.SetValueEverywhere("AlwaysShowUserChooser", "0") > 0)
         {
-            ["SteamID"] = steamId
-        };
-
-        VdfDocument.Save(path, config);
-    }
-
-    private static void UpdateLoginUsersVdf(string path, Dictionary<string, object> loginUsers, string accountName, string steamId)
-    {
-        var users = EnsureObject(loginUsers, "users");
-
-        foreach (var user in users.Values.OfType<Dictionary<string, object>>())
-        {
-            user["MostRecent"] = "0";
+            AppLog.Info("Turned off Steam's \"always show the account picker\" setting, so it signs in by itself.");
         }
 
-        users[steamId] = new Dictionary<string, object>
-        {
-            ["AccountName"] = accountName,
-            ["PersonaName"] = accountName,
-            ["RememberPassword"] = "1",
-            ["WantsOfflineMode"] = "0",
-            ["SkipOfflineModeWarning"] = "0",
-            ["AllowAutoLogin"] = "1",
-            ["MostRecent"] = "1",
-            ["Timestamp"] = DateTimeOffset.Now.ToUnixTimeSeconds().ToString()
-        };
-
-        SaveAndBackUp(path, loginUsers);
+        VdfDocument.SaveText(path, config.Text);
     }
 
-    private static void RestoreLoginUsersVdf(string path, Dictionary<string, object> loginUsers, CachedSteamLoginAccount account)
+    private static VdfText LoadConfig(string path)
     {
-        var users = EnsureObject(loginUsers, "users");
-
-        foreach (var user in users.Values.OfType<Dictionary<string, object>>())
+        var state = VdfDocument.LoadForUpdate(path, out _, out var text, out var error);
+        if (state == VdfReadState.Loaded && VdfText.TryParse(text, out var config))
         {
-            user["MostRecent"] = "0";
+            SaveBackup("config.vdf", text);
+            return config;
         }
 
-        var restoredUser = EnsureObject(users, account.SteamId);
-        restoredUser["AccountName"] = account.AccountName;
-        // Prefer the nickname already in loginusers.vdf, then the cached Steam nickname, and only then fall back to the account name.
-        var existingPersona = GetString(restoredUser, "PersonaName");
-        restoredUser["PersonaName"] = !string.IsNullOrWhiteSpace(existingPersona)
-            ? existingPersona
-            : !string.IsNullOrWhiteSpace(account.PersonaName)
-                ? account.PersonaName
-                : account.AccountName;
-        restoredUser["RememberPassword"] = "1";
-        restoredUser["WantsOfflineMode"] = "0";
-        restoredUser["SkipOfflineModeWarning"] = "0";
-        restoredUser["AllowAutoLogin"] = "1";
-        restoredUser["MostRecent"] = "1";
-        restoredUser["Timestamp"] = DateTimeOffset.Now.ToUnixTimeSeconds().ToString();
+        if (state != VdfReadState.Missing)
+        {
+            KeepUnreadableCopy(path);
+            AppLog.Warn($"config.vdf could not be read ({error ?? "empty"}), so a new one was started. Steam fills in the rest when it starts.");
+        }
 
-        SaveAndBackUp(path, loginUsers);
+        // The same few entries the original loader wrote. Steam adds everything else itself.
+        var created = VdfText.Empty();
+        created.SetValue(ConfigSteamPath, "AutoUpdateWindowEnabled", "0");
+        created.SetValue(ConfigSteamPath, "MTBF", Random.Shared.Next(100000000, 999999999).ToString(CultureInfo.InvariantCulture));
+        return created;
     }
 
-    private static void UpdateLocalVdf(string path, Dictionary<string, object> local, string accountCrc32, string encryptedJwt)
+    // Marks the account as the one Steam signs in to next, the way Steam itself records a remembered account. Values
+    // of the account's entry that are not listed here, and every other account, stay as they are.
+    private static void MarkSignedIn(VdfText loginUsers, string accountName, string steamId, string personaName)
     {
-        var connectCache = EnsurePath(
-            local,
-            "MachineUserConfigStore",
-            "Software",
-            "Valve",
-            "Steam",
-            "ConnectCache");
-
-        connectCache[accountCrc32] = encryptedJwt;
-        SaveAndBackUp(path, local);
+        string[] user = ["users", steamId];
+        loginUsers.SetValueInEachObject(["users"], "MostRecent", "0", exceptKey: steamId);
+        loginUsers.SetValue(user, "AccountName", accountName);
+        loginUsers.SetValueIfMissing(user, "PersonaName", personaName);
+        loginUsers.SetValue(user, "RememberPassword", "1");
+        loginUsers.SetValue(user, "WantsOfflineMode", "0");
+        loginUsers.SetValue(user, "SkipOfflineModeWarning", "0");
+        loginUsers.SetValue(user, "AllowAutoLogin", "1");
+        loginUsers.SetValue(user, "MostRecent", "1");
+        loginUsers.SetValue(user, "Timestamp", DateTimeOffset.Now.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture));
     }
 
     // The backup always matches what the loader last wrote, so a later fallback keeps the account signed in here.
-    private static void SaveAndBackUp(string path, Dictionary<string, object> document)
+    private static void SaveAndBackUp(string path, VdfText document)
     {
-        VdfDocument.Save(path, document);
-        SaveBackup(Path.GetFileName(path), VdfDocument.ToText(document));
-    }
-
-    private static Dictionary<string, object> EnsurePath(
-        Dictionary<string, object> root,
-        params string[] keys)
-    {
-        var current = root;
-        foreach (var key in keys)
-        {
-            current = EnsureObject(current, key);
-        }
-
-        return current;
-    }
-
-    private static Dictionary<string, object> EnsureObject(
-        Dictionary<string, object> parent,
-        string key)
-    {
-        if (parent.TryGetValue(key, out var value) && value is Dictionary<string, object> existing)
-        {
-            return existing;
-        }
-
-        var created = new Dictionary<string, object>(StringComparer.Ordinal);
-        parent[key] = created;
-        return created;
+        VdfDocument.SaveText(path, document.Text);
+        SaveBackup(Path.GetFileName(path), document.Text);
     }
 
     private static CachedSteamLoginAccount? GetActiveLoginAccount(
@@ -412,9 +444,9 @@ internal sealed class SteamConfigService
         };
     }
 
-    // Before our sign-in overwrites local.vdf, grab each account's ConnectCache token (crc32(account name)+"1") and cache it with the account;
-    // writing it back to local.vdf on restore is what lets Steam sign in automatically without a password. If it can't be read (Steam forgot the account or the token rotated) it stays null,
-    // and restore falls back to only preselecting the account. If local.vdf fails to parse, GetPath returns null and the whole step is skipped, best-effort.
+    // Before a sign-in changes local.vdf, take each remembered account's saved login (ConnectCache, crc32(account
+    // name)+"1") and cache it with the account, so Cached Accounts can give it back later. The block is found the way
+    // Steam finds it. When local.vdf cannot be read, nothing is taken and the restore only selects the account.
     private static void PopulateConnectCacheTokens(
         SteamPaths paths,
         IReadOnlyList<CachedSteamLoginAccount> accounts)
@@ -424,27 +456,21 @@ internal sealed class SteamConfigService
             return;
         }
 
-        var connectCache = GetPath(
-            VdfDocument.LoadOrEmpty(paths.LocalVdfPath),
-            "MachineUserConfigStore",
-            "Software",
-            "Valve",
-            "Steam",
-            "ConnectCache");
-        if (connectCache is null)
+        Dictionary<string, string> connectCache;
+        try
+        {
+            connectCache = VdfText.Parse(File.ReadAllText(paths.LocalVdfPath)).GetValues(ConnectCachePath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException)
         {
             return;
         }
 
         foreach (var account in accounts)
         {
-            if (string.IsNullOrWhiteSpace(account.AccountName))
-            {
-                continue;
-            }
-
-            var token = GetString(connectCache, Crc32.ComputeSteamAccountKey(account.AccountName));
-            if (!string.IsNullOrWhiteSpace(token))
+            if (!string.IsNullOrWhiteSpace(account.AccountName) &&
+                connectCache.TryGetValue(Crc32.ComputeSteamAccountKey(account.AccountName), out var token) &&
+                !string.IsNullOrWhiteSpace(token))
             {
                 account.ConnectCacheToken = token;
             }

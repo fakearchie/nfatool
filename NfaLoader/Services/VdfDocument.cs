@@ -13,8 +13,8 @@ internal enum VdfReadState
 
 internal static class VdfDocument
 {
-    // Steam never writes its own VDF files with a BOM, and a config.vdf with a BOM is unreadable to Steam, which then resets the whole file
-    // (see the SteamConfigService.UpdateConfigVdf comment for how this was tracked down), so writes must use an encoding without a BOM.
+    // Steam never writes its own VDF files with a BOM, and a config.vdf with a BOM is unreadable to Steam, which then resets the whole file,
+    // so writes must use an encoding without a BOM.
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
     public static Dictionary<string, object> Load(string path)
@@ -104,7 +104,9 @@ internal static class VdfDocument
         }
     }
 
-    public static void Save(string path, Dictionary<string, object> document)
+    public static void Save(string path, Dictionary<string, object> document) => SaveText(path, Write(document));
+
+    public static void SaveText(string path, string text)
     {
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrWhiteSpace(directory))
@@ -117,7 +119,7 @@ internal static class VdfDocument
         var tempPath = path + "." + Path.GetRandomFileName() + ".tmp";
         try
         {
-            File.WriteAllText(tempPath, Write(document), Utf8NoBom);
+            File.WriteAllText(tempPath, text, Utf8NoBom);
             File.Move(tempPath, path, overwrite: true);
         }
         catch

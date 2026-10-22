@@ -432,6 +432,7 @@
     "Cached_Restore_NoSelection": "Select a cached account to restore login first.",
     "Cached_Restore_Progress_Format": "Restoring login for cached account {0}...",
     "Cached_Restore_Success_Format": "Requested restore login of cached account: {0} (SteamID: {1}).",
+    "Cached_Restore_NoSavedLogin_Format": "Steam is starting with {0}, but there is no saved login for it that still works, so Steam will ask for the password.",
     "Cached_Restore_Fail_Format": "{0} (diagnostic log: {1})",
     "Cached_Clear_None": "No cached accounts are available to clear.",
     "Cached_Clear_Dialog_Title": "Clear Cached Accounts",

@@ -26,9 +26,17 @@ internal sealed class SteamLoginService
             var paths = SteamPathCoordinator.ResolvePathsOrThrow();
             var cachedAccountCandidates = _steamConfigService.GetLoginAccounts(paths);
 
+            // Steam keeps account names in lower case, and current token tools hash and encrypt the lower case name.
+            // Using it everywhere Steam sees the name keeps the saved login key, its encryption and -login consistent.
+            var steamAccountName = accountName.Trim().ToLowerInvariant();
+            if (steamAccountName != accountName)
+            {
+                AppLog.Info($"Account name \"{accountName}\" is used as \"{steamAccountName}\", the way Steam stores account names.");
+            }
+
             progress?.Report(Loc.T("Steam_Progress_EncryptingToken"));
-            var encryptedJwt = _steamCryptoService.EncryptToHex(eyaToken, accountName);
-            var accountCrc32 = Crc32.ComputeSteamAccountKey(accountName);
+            var encryptedJwt = _steamCryptoService.EncryptToHex(eyaToken, steamAccountName);
+            var accountCrc32 = Crc32.ComputeSteamAccountKey(steamAccountName);
             AppLog.Info($"Token encrypted ({encryptedJwt.Length} hex chars); ConnectCache key={accountCrc32}");
 
             // Before Steam is stopped: if it has to be killed while saving, the backup still has every account it remembers.
@@ -36,24 +44,25 @@ internal sealed class SteamLoginService
             _steamProcessService.EnsureSteamStopped(paths, progress);
 
             progress?.Report(Loc.T("Steam_Progress_WritingConfig"));
-            if (cachedAccountCandidates.Count == 0)
-            {
-                cachedAccountCandidates = _steamConfigService.GetLoginAccounts(paths);
-            }
+            // Steam saves its newest logins as it closes, so read them again now. The earlier read still counts for an
+            // account that Steam only showed while it was running.
+            cachedAccountCandidates = SteamConfigService.CombineLoginAccounts(
+                _steamConfigService.GetLoginAccounts(paths),
+                cachedAccountCandidates);
 
-            _loginCacheService.MarkEyaLogin(accountName, token.SteamId);
-            CacheLoginAccounts(cachedAccountCandidates, accountName, token.SteamId);
+            _loginCacheService.MarkEyaLogin(steamAccountName, token.SteamId);
+            CacheLoginAccounts(cachedAccountCandidates, steamAccountName, token.SteamId);
             _steamConfigService.UpdateLoginFiles(
                 paths,
-                accountName,
+                steamAccountName,
                 token.SteamId,
                 encryptedJwt,
                 accountCrc32);
-            _steamConfigService.SetAutoLoginUser(accountName);
+            _steamConfigService.SetAutoLoginUser(steamAccountName);
 
             progress?.Report(Loc.T("Steam_Progress_StartingSteam"));
             var signInMark = SteamSignInWatcher.Mark(paths, token.SteamId);
-            _steamProcessService.LaunchSteamWithLogin(paths, accountName);
+            _steamProcessService.LaunchSteamWithLogin(paths, steamAccountName);
 
             TryPushCs2Cloud(paths, token.SteamId, progress);
 
@@ -74,7 +83,8 @@ internal sealed class SteamLoginService
             .ToList();
     }
 
-    public CachedSteamLoginAccount RestoreCachedLogin(
+    /// <summary>Selects a cached account in Steam again and starts Steam. Returns whether Steam can sign in to it without the password.</summary>
+    public bool RestoreCachedLogin(
         CachedSteamLoginAccount account,
         IProgress<string>? progress = null)
     {
@@ -89,7 +99,7 @@ internal sealed class SteamLoginService
             _steamProcessService.EnsureSteamStopped(paths, progress);
 
             progress?.Report(Loc.T("Steam_Progress_RestoringConfig"));
-            _steamConfigService.RestoreLoginFiles(paths, account);
+            var savedLogin = _steamConfigService.RestoreLoginFiles(paths, account);
             _steamConfigService.SetAutoLoginUser(account.AccountName);
 
             progress?.Report(Loc.T("Steam_Progress_StartingSteam"));
@@ -98,7 +108,7 @@ internal sealed class SteamLoginService
             TryPushCs2Cloud(paths, account.SteamId, progress);
 
             AppLog.Info($"==== Requested restore of cached account: {account.AccountName} ({account.SteamId}) ====");
-            return account;
+            return savedLogin;
         }
         catch (Exception ex)
         {
