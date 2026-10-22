@@ -39,6 +39,36 @@ internal sealed class SteamPathService
         return null;
     }
 
+    /// <summary>
+    /// The Steam folder the user actually runs: the folder of the running steam.exe first, then HKCU SteamPath, which Steam rewrites on every start.
+    /// Only a folder that contains steam.exe counts. Returns null when neither gives one.
+    /// </summary>
+    public static string? FindLiveInstallPath(out string source)
+    {
+        foreach (var (candidateSource, candidate) in new[]
+                 {
+                     ("running steam.exe", GetInstallPathFromRunningProcess()),
+                     ("HKCU SteamPath", ReadHkcuSteamPath())
+                 })
+        {
+            if (ContainsSteamExe(candidate))
+            {
+                source = candidateSource;
+                return candidate!.Trim().TrimEnd('\\', '/');
+            }
+        }
+
+        source = "";
+        return null;
+    }
+
+    /// <summary>HKCU\Software\Valve\Steam\SteamPath as Steam wrote it (lowercase with forward slashes), or null when it is not set.</summary>
+    public static string? ReadHkcuSteamPath() => ReadRegistryString(
+        RegistryHive.CurrentUser,
+        RegistryView.Default,
+        @"Software\Valve\Steam",
+        "SteamPath");
+
     /// <summary>Whether the directory is a valid Steam install root (exists and contains steam.exe). An empty path or an exception counts as no.</summary>
     public static bool ContainsSteamExe(string? directory)
     {
@@ -137,7 +167,8 @@ internal sealed class SteamPathService
             Path.Combine(localAppData, "Steam", "local.vdf"),
             Path.Combine(normalized, "config"),
             Path.Combine(normalized, "userdata"));
-        AppLog.Info($"Using Steam install directory=\"{normalized}\"  config directory=\"{paths.ConfigPath}\"  local.vdf=\"{paths.LocalVdfPath}\"");
+        // HKCU SteamPath is the folder Steam last ran from, so logging it next to the folder in use shows support when the two differ.
+        AppLog.Info($"Using Steam install directory=\"{normalized}\"  HKCU SteamPath=\"{ReadHkcuSteamPath() ?? "(not set)"}\"  config directory=\"{paths.ConfigPath}\"  local.vdf=\"{paths.LocalVdfPath}\"");
         return paths;
     }
 
@@ -147,11 +178,7 @@ internal sealed class SteamPathService
     // registry not updated after moving drives, protocol registered machine-wide in HKLM instead of HKCU) could not find Steam.
     private static IEnumerable<(string Source, string? Path)> EnumerateInstallPathCandidates()
     {
-        yield return ("HKCU SteamPath", ReadRegistryString(
-            RegistryHive.CurrentUser,
-            RegistryView.Default,
-            @"Software\Valve\Steam",
-            "SteamPath"));
+        yield return ("HKCU SteamPath", ReadHkcuSteamPath());
 
         var steamExe = ReadRegistryString(
             RegistryHive.CurrentUser,
@@ -186,26 +213,32 @@ internal sealed class SteamPathService
         return string.IsNullOrWhiteSpace(root) ? null : Path.Combine(root, "Steam");
     }
 
+    // Only steam.exe: steamwebhelper.exe lives in bin\cef\..., so its folder never contains steam.exe.
+    // The image path is read with the limited query right, which also works when Steam runs as administrator and MainModule is denied.
     private static string? GetInstallPathFromRunningProcess()
     {
-        foreach (var processName in new[] { "steam", "steamwebhelper" })
+        var sessionId = SteamProcessService.CurrentSessionId();
+        foreach (var process in Process.GetProcessesByName("steam"))
         {
-            foreach (var process in Process.GetProcessesByName(processName))
+            using (process)
             {
-                using (process)
+                try
                 {
-                    try
+                    // Another Windows user's Steam is not the one this user runs.
+                    if (process.SessionId != sessionId)
                     {
-                        var fileName = process.MainModule?.FileName;
-                        if (!string.IsNullOrWhiteSpace(fileName))
-                        {
-                            return Path.GetDirectoryName(fileName);
-                        }
+                        continue;
                     }
-                    catch
+
+                    var fileName = SteamProcessService.TryGetImagePath(process);
+                    if (!string.IsNullOrWhiteSpace(fileName))
                     {
-                        // Some processes deny MainModule access; other candidates usually cover this.
+                        return Path.GetDirectoryName(fileName);
                     }
+                }
+                catch
+                {
+                    // The process exited meanwhile; HKCU SteamPath and the other candidates cover this.
                 }
             }
         }

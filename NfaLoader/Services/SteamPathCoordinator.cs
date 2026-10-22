@@ -1,16 +1,17 @@
+using Microsoft.UI;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.Windows.Storage.Pickers;
 using NfaLoader.Localization;
 using NfaLoader.Models;
-using Windows.Storage;
-using Windows.Storage.Pickers;
 
 namespace NfaLoader.Services;
 
 /// <summary>
 /// Top-level flow for resolving the Steam install path, persisting it, and falling back when that fails:
-///   1. Prefer the path already persisted in settings (valid only if it still contains steam.exe);
-///   2. Stale or empty → auto-detect, and write it back to settings on success. It is cached on first launch and reused for every sign-in after that, with no new detection each time;
-///   3. Still not found → show a dialog so the user picks the folder that contains steam.exe, then persist it.
+///   1. A folder the user picked by hand wins while it still contains steam.exe;
+///   2. Otherwise the Steam the user actually runs (the running steam.exe, then HKCU SteamPath) wins over the saved folder, so a moved or reinstalled Steam is followed;
+///   3. Then the saved folder (valid only if it still contains steam.exe), then auto-detection, written back to settings on success;
+///   4. Still not found → show a dialog so the user picks the folder that contains steam.exe, then persist it.
 /// The non-UI <see cref="TryResolveInstallPath"/> / <see cref="ResolvePathsOrThrow"/> can be called on a background thread;
 /// <see cref="EnsureResolvedAsync"/> and its dialog must only be called on the UI thread.
 /// </summary>
@@ -23,17 +24,45 @@ internal static class SteamPathCoordinator
     private static readonly SemaphoreSlim _promptGate = new(1, 1);
 
     /// <summary>
-    /// Non-UI: returns a usable Steam install folder. The persisted value wins; if it is stale or empty, auto-detect and write it back to settings. Returns null if neither works.
-    /// Only does disk/registry I/O, so it is safe to call on a background thread.
+    /// Non-UI: returns a usable Steam install folder and writes it back to settings. Order: a folder picked by hand, the Steam the user actually runs,
+    /// the saved folder, auto-detection. Returns null if none works.
+    /// Only does disk/registry/process I/O, so it is safe to call on a background thread.
     /// </summary>
     public static string? TryResolveInstallPath()
     {
         var settings = AppState.SettingsService.Load();
         var persisted = settings.SteamInstallPath;
-        if (SteamPathService.ContainsSteamExe(persisted))
+        var persistedValid = SteamPathService.ContainsSteamExe(persisted);
+
+        // A saved folder that was only found automatically goes stale when Steam is moved or installed again elsewhere while the old folder keeps steam.exe.
+        // Then the loader would stop the user's Steam and write the sign-in into a Steam they no longer use, so Steam's own location wins.
+        var live = SteamPathService.FindLiveInstallPath(out var liveSource);
+        if (live is not null)
+        {
+            var liveNormalized = SteamPathService.NormalizeInstallPath(live);
+            var differs = !string.IsNullOrWhiteSpace(persisted) &&
+                !string.Equals(SteamPathService.NormalizeInstallPath(persisted), liveNormalized, StringComparison.OrdinalIgnoreCase);
+
+            if (!(settings.SteamInstallPathUserPicked && persistedValid))
+            {
+                if (differs)
+                {
+                    AppLog.Warn($"Saved Steam folder \"{persisted}\" is not the Steam in use, switching to \"{liveNormalized}\" (from {liveSource}).");
+                }
+
+                return PersistCanonical(settings, liveNormalized, userPicked: false);
+            }
+
+            if (differs)
+            {
+                AppLog.Info($"Keeping the Steam folder picked by hand \"{persisted}\", although Steam itself is at \"{liveNormalized}\" (from {liveSource}).");
+            }
+        }
+
+        if (persistedValid)
         {
             // Normalize to the real on-disk casing and write it back. This upgrades the all-lowercase, forward-slash paths written by old versions/HKCU once, so the path displays cleanly.
-            return PersistCanonical(settings, SteamPathService.NormalizeInstallPath(persisted!));
+            return PersistCanonical(settings, SteamPathService.NormalizeInstallPath(persisted!), settings.SteamInstallPathUserPicked);
         }
 
         if (!string.IsNullOrWhiteSpace(persisted))
@@ -44,20 +73,22 @@ internal static class SteamPathCoordinator
         var detected = _service.AutoDetectInstallPath();
         if (detected is not null)
         {
-            return PersistCanonical(settings, SteamPathService.NormalizeInstallPath(detected));
+            return PersistCanonical(settings, SteamPathService.NormalizeInstallPath(detected), userPicked: false);
         }
 
         return null;
     }
 
     // Write to disk only when the value differs from the stored one, so not every resolve hits disk; also upgrades old all-lowercase/forward-slash values to the real on-disk casing.
-    private static string PersistCanonical(AppSettings settings, string canonicalPath)
+    private static string PersistCanonical(AppSettings settings, string canonicalPath, bool userPicked)
     {
-        if (!string.Equals(settings.SteamInstallPath, canonicalPath, StringComparison.Ordinal))
+        if (!string.Equals(settings.SteamInstallPath, canonicalPath, StringComparison.Ordinal) ||
+            settings.SteamInstallPathUserPicked != userPicked)
         {
             settings.SteamInstallPath = canonicalPath;
+            settings.SteamInstallPathUserPicked = userPicked;
             AppState.SettingsService.Save(settings);
-            AppLog.Info($"Persisted Steam install folder: \"{canonicalPath}\"");
+            AppLog.Info($"Persisted Steam install folder: \"{canonicalPath}\" (picked by hand: {userPicked})");
         }
 
         return canonicalPath;
@@ -121,16 +152,17 @@ internal static class SteamPathCoordinator
             return false; // User cancelled
         }
 
-        if (!SteamPathService.ContainsSteamExe(folder.Path))
+        if (!SteamPathService.ContainsSteamExe(folder))
         {
-            AppLog.Warn($"The folder the user picked does not contain steam.exe: \"{folder.Path}\"");
+            AppLog.Warn($"The folder the user picked does not contain steam.exe: \"{folder}\"");
             AppState.ShowStatus(Loc.T("SteamPath_Dialog_InvalidContent"), InfoBarSeverity.Error);
             return false;
         }
 
-        var normalized = SteamPathService.NormalizeInstallPath(folder.Path);
+        var normalized = SteamPathService.NormalizeInstallPath(folder);
         var settings = AppState.SettingsService.Load();
         settings.SteamInstallPath = normalized;
+        settings.SteamInstallPathUserPicked = true;
         AppState.SettingsService.Save(settings);
         AppLog.Info($"User changed the Steam install folder on the settings page: \"{normalized}\"");
         return true;
@@ -171,31 +203,34 @@ internal static class SteamPathCoordinator
                 continue;
             }
 
-            if (SteamPathService.ContainsSteamExe(folder.Path))
+            if (SteamPathService.ContainsSteamExe(folder))
             {
-                var normalized = SteamPathService.NormalizeInstallPath(folder.Path);
+                var normalized = SteamPathService.NormalizeInstallPath(folder);
                 var settings = AppState.SettingsService.Load();
                 settings.SteamInstallPath = normalized;
+                settings.SteamInstallPathUserPicked = true;
                 AppState.SettingsService.Save(settings);
                 AppLog.Info($"User picked and persisted the Steam install folder:\"{normalized}\"");
                 return true;
             }
 
-            AppLog.Warn($"The folder the user picked does not contain steam.exe: \"{folder.Path}\"");
+            AppLog.Warn($"The folder the user picked does not contain steam.exe: \"{folder}\"");
             content = Loc.T("SteamPath_Dialog_InvalidContent");
         }
     }
 
-    private static async Task<StorageFolder?> PickFolderAsync()
+    // Returns the picked folder's path, or null when the user cancelled or the picker failed.
+    private static async Task<string?> PickFolderAsync()
     {
         try
         {
-            var picker = new FolderPicker();
-            picker.FileTypeFilter.Add("*"); // FolderPicker needs at least one filter, otherwise PickSingleFolderAsync returns null right away
-            picker.SuggestedStartLocation = PickerLocationId.ComputerFolder;
-            // Unpackaged WinUI: the picker must be bound to the window handle, otherwise it throws a COM exception.
-            WinRT.Interop.InitializeWithWindow.Initialize(picker, MainWindow.Hwnd);
-            return await picker.PickSingleFolderAsync();
+            // The Windows App SDK picker, unlike Windows.Storage.Pickers, also opens when the unpackaged loader runs as administrator.
+            var picker = new FolderPicker(Win32Interop.GetWindowIdFromWindow(MainWindow.Hwnd))
+            {
+                SuggestedStartLocation = PickerLocationId.ComputerFolder
+            };
+            var result = await picker.PickSingleFolderAsync();
+            return string.IsNullOrEmpty(result?.Path) ? null : result.Path;
         }
         catch (Exception ex)
         {

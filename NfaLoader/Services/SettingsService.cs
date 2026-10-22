@@ -112,10 +112,16 @@ internal sealed class AppSettings
 
     /// <summary>
     /// The resolved and saved Steam install directory (the root that contains steam.exe). Written after detection on first start and reused after that,
-    /// so it is not detected again on every sign-in. null/empty means not resolved yet; if it goes stale (no steam.exe in the directory) it is detected again,
+    /// unless Steam itself now runs from another folder. null/empty means not resolved yet; if it goes stale (no steam.exe in the directory) it is detected again,
     /// and if that still fails a dialog asks the user to pick it. See <see cref="SteamPathCoordinator"/>.
     /// </summary>
     public string? SteamInstallPath { get; set; }
+
+    /// <summary>
+    /// Whether the user picked <see cref="SteamInstallPath"/> by hand. A picked folder is kept as long as it has steam.exe;
+    /// a folder that was only found automatically follows the Steam the user actually runs (see <see cref="SteamPathCoordinator"/>).
+    /// </summary>
+    public bool SteamInstallPathUserPicked { get; set; }
 
     /// <summary>The single CS2 loadout preset, edited on the loadout page and applied in one click from the sign-in page. New users get the built-in default loadout.</summary>
     public CsLoadoutPreset Loadout { get; set; } = CsLoadoutPreset.Default();
