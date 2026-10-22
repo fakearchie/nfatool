@@ -620,15 +620,17 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
         AppState.ShowStatus(Loc.Tf("History_Status_LoggingIn_Format", account.AccountTitle), InfoBarSeverity.Informational);
         var progress = new Progress<string>(message => AppState.ShowStatus(message, InfoBarSeverity.Informational));
         SteamAccountHistoryItem? refusedNfaAccount = null;
+        LoginResult? started = null;
 
         try
         {
             var result = await loginPage.QuickLoginAsync(
                 account.AccountName, account.EyaToken, progress, cancellationToken);
+            started = result;
             AppState.ReloadHistory(result.SteamId);
             AppState.ShowStatus(
                 Loc.Tf("History_Status_LoginStarted_Format", account.AccountTitle, result.SteamId),
-                InfoBarSeverity.Success);
+                InfoBarSeverity.Informational);
         }
         catch (OperationCanceledException)
         {
@@ -657,6 +659,11 @@ public sealed partial class HistoryPage : Page, INotifyPropertyChanged
         if (refusedNfaAccount is not null)
         {
             await NfaReplaceFlow.OfferAsync(XamlRoot, refusedNfaAccount);
+        }
+
+        if (started is not null)
+        {
+            await loginPage.ReportSteamSignInAsync(started);
         }
     }
 

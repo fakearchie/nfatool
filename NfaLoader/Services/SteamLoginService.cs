@@ -52,12 +52,13 @@ internal sealed class SteamLoginService
             _steamConfigService.SetAutoLoginUser(accountName);
 
             progress?.Report(Loc.T("Steam_Progress_StartingSteam"));
+            var signInMark = SteamSignInWatcher.Mark(paths, token.SteamId);
             _steamProcessService.LaunchSteamWithLogin(paths, accountName);
 
             TryPushCs2Cloud(paths, token.SteamId, progress);
 
             AppLog.Info("==== Sign-in finished (Steam launch requested) ====");
-            return new LoginResult(accountName, token.SteamId, token.ExpiresAt);
+            return new LoginResult(accountName, token.SteamId, token.ExpiresAt) { SignInMark = signInMark };
         }
         catch (Exception ex)
         {

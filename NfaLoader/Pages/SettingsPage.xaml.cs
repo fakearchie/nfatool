@@ -557,6 +557,35 @@ public sealed partial class SettingsPage : Page, INotifyPropertyChanged
         }
     }
 
+    private async void SaveDiagnosticsButton_Click(object sender, RoutedEventArgs e)
+    {
+        SaveDiagnosticsButton.IsEnabled = false;
+        try
+        {
+            var path = await Task.Run(DiagnosticsService.SaveReport);
+            AppLog.Info($"Saved a diagnostics report: {path}");
+            AppState.ShowStatus(Loc.Tf("Settings_Status_DiagnosticsSaved_Format", Path.GetFileName(path)), InfoBarSeverity.Success);
+            try
+            {
+                // Shows the file selected, ready to drag into a support chat.
+                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn($"Could not show the diagnostics report in File Explorer: {ex.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Failed to save a diagnostics report.", ex);
+            AppState.ShowStatus(Loc.Tf("Settings_Status_DiagnosticsFailed_Format", ex.Message), InfoBarSeverity.Error);
+        }
+        finally
+        {
+            SaveDiagnosticsButton.IsEnabled = true;
+        }
+    }
+
     private void OpenDataFolderButton_Click(object sender, RoutedEventArgs e)
     {
         var folder = AppState.SettingsService.AppFolderPath;

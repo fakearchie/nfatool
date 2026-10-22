@@ -358,6 +358,7 @@ public sealed partial class LoginPage : Page, INotifyPropertyChanged
 
         string? attemptedToken = null;
         SteamAccountHistoryItem? refusedNfaAccount = null;
+        LoginResult? started = null;
 
         try
         {
@@ -374,11 +375,12 @@ public sealed partial class LoginPage : Page, INotifyPropertyChanged
                 () => AppState.LoginService.Login(accountName, eyaToken, progress),
                 cancellationToken);
             var historyStatus = await SaveLoginHistoryAsync(result, eyaToken, profile);
+            started = result;
             ShowStatus(
                 Loc.Tf("Login_Status_LoginStarted_Format", result.SteamId, FormatHelper.FormatRemaining(result.Remaining), historyStatus),
                 _lastLoginHistorySaveFailed
                     ? InfoBarSeverity.Warning
-                    : InfoBarSeverity.Success);
+                    : InfoBarSeverity.Informational);
         }
         catch (OperationCanceledException)
         {
@@ -405,7 +407,77 @@ public sealed partial class LoginPage : Page, INotifyPropertyChanged
         {
             await NfaReplaceFlow.OfferAsync(XamlRoot, refusedNfaAccount);
         }
+
+        if (started is not null)
+        {
+            await ReportSteamSignInAsync(started);
+        }
     }
+
+    private int _signInCheck;
+
+    /// <summary>
+    /// Reads Steam's own log after it was started and says whether it really signed in. Until now a refused or
+    /// ignored login looked exactly like a working one, and nobody could tell why "nothing happened". Runs after the
+    /// sign-in has finished, so the app stays usable meanwhile; a newer sign-in replaces an older check.
+    /// </summary>
+    internal async Task ReportSteamSignInAsync(LoginResult result)
+    {
+        if (result.SignInMark is not { } mark)
+        {
+            return;
+        }
+
+        var check = ++_signInCheck;
+        var name = DisplayNameFor(result.SteamId);
+        SteamSignInVerdict verdict;
+        try
+        {
+            verdict = await SteamSignInWatcher.WaitAsync(mark, SignInCheckTimeout, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"Could not check whether Steam signed in: {ex.Message}");
+            return;
+        }
+
+        AppLog.Info($"Steam sign-in check for {result.SteamId}: {verdict.Outcome}" +
+            $"{(verdict.Detail is null ? "" : $" ({verdict.Detail})")}{(verdict.OtherSteamId is null ? "" : $", signed in as {verdict.OtherSteamId}")}");
+        if (check != _signInCheck)
+        {
+            return;
+        }
+
+        switch (verdict.Outcome)
+        {
+            case SteamSignInOutcome.SignedIn:
+                ShowStatus(Loc.Tf("Login_SignIn_Done_Format", name), InfoBarSeverity.Success);
+                break;
+
+            case SteamSignInOutcome.Refused:
+                ShowStatus(Loc.Tf("Login_SignIn_Refused_Format", name, verdict.Detail ?? ""), InfoBarSeverity.Error);
+                if (AppState.FindHistoryAccount(result.SteamId) is { } account && NfaReplaceFlow.CanOffer(account))
+                {
+                    await NfaReplaceFlow.OfferAsync(XamlRoot, account);
+                }
+
+                break;
+
+            case SteamSignInOutcome.OtherAccount:
+                ShowStatus(Loc.Tf("Login_SignIn_OtherAccount_Format", name, verdict.OtherSteamId ?? ""), InfoBarSeverity.Warning);
+                break;
+
+            case SteamSignInOutcome.NoAttempt:
+                ShowStatus(Loc.Tf("Login_SignIn_NoAttempt_Format", name), InfoBarSeverity.Warning);
+                break;
+        }
+    }
+
+    // Steam can take a while to start, longer still when it updates itself first.
+    private static readonly TimeSpan SignInCheckTimeout = TimeSpan.FromSeconds(90);
+
+    private static string DisplayNameFor(string steamId) =>
+        AppState.FindHistoryAccount(steamId)?.PersonaName is { Length: > 0 } persona ? persona : steamId;
 
     /// <summary>
     /// Lets the History page's "Quick login" sign in with a given account directly, using the same flow as "Sign in to Steam"
