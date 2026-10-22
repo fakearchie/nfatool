@@ -120,7 +120,8 @@ internal sealed class AppSettings
     /// <summary>
     /// Whether the user picked <see cref="SteamInstallPath"/> by hand. A picked folder is kept as long as it has steam.exe;
     /// a folder that was only found automatically follows the Steam the user actually runs (see <see cref="SteamPathCoordinator"/>).
-    /// null means the settings were saved before this flag existed (v0.5.3 and older); the next resolve decides it once.
+    /// null means the settings were saved before this flag existed (v0.5.3 and older) and it is not decided yet. It is decided the first time the
+    /// saved folder still has steam.exe but is not the Steam in use.
     /// </summary>
     public bool? SteamInstallPathUserPicked { get; set; }
 

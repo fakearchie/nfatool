@@ -41,24 +41,26 @@ internal static class SteamPathCoordinator
         var differs = liveNormalized is not null && !string.IsNullOrWhiteSpace(persisted) &&
             !string.Equals(SteamPathService.NormalizeInstallPath(persisted), liveNormalized, StringComparison.OrdinalIgnoreCase);
 
-        // Settings saved before the flag existed load it as null. Those versions kept the saved folder while it had steam.exe and never recorded a pick by hand,
-        // so a saved folder that still works but is not the Steam in use is treated as picked by hand. Decided once: PersistCanonical below saves the answer.
-        var userPicked = settings.SteamInstallPathUserPicked ?? (persistedValid && differs);
-        if (settings.SteamInstallPathUserPicked is null && userPicked)
+        // Settings saved before the flag existed load it as null. Those versions kept the saved folder while it had steam.exe and never recorded a pick by hand.
+        // The first time such a folder still works but is not the Steam in use, it is kept as picked by hand, as those versions did. Until then the flag stays
+        // null: a saved folder that is the live Steam, or no live Steam at all, says nothing about how the folder was chosen.
+        var userPicked = settings.SteamInstallPathUserPicked ?? (persistedValid && differs ? true : null);
+        if (settings.SteamInstallPathUserPicked is null && userPicked == true)
         {
             AppLog.Info($"Settings predate the picked-by-hand flag, keeping the saved Steam folder \"{persisted}\" (Steam last ran from \"{liveNormalized}\").");
         }
 
         if (liveNormalized is not null)
         {
-            if (!(userPicked && persistedValid))
+            if (!(userPicked == true && persistedValid))
             {
                 if (differs)
                 {
                     AppLog.Warn($"Saved Steam folder \"{persisted}\" is not the Steam in use, switching to \"{liveNormalized}\" (from {liveSource}).");
                 }
 
-                return PersistCanonical(settings, liveNormalized, userPicked: false);
+                // Staying on the same folder keeps an undecided flag undecided; switching makes it a folder found automatically.
+                return PersistCanonical(settings, liveNormalized, persistedValid && !differs ? userPicked : false);
             }
 
             if (differs)
@@ -88,7 +90,7 @@ internal static class SteamPathCoordinator
     }
 
     // Write to disk only when the value differs from the stored one, so not every resolve hits disk; also upgrades old all-lowercase/forward-slash values to the real on-disk casing.
-    private static string PersistCanonical(AppSettings settings, string canonicalPath, bool userPicked)
+    private static string PersistCanonical(AppSettings settings, string canonicalPath, bool? userPicked)
     {
         if (!string.Equals(settings.SteamInstallPath, canonicalPath, StringComparison.Ordinal) ||
             settings.SteamInstallPathUserPicked != userPicked)
@@ -96,7 +98,7 @@ internal static class SteamPathCoordinator
             settings.SteamInstallPath = canonicalPath;
             settings.SteamInstallPathUserPicked = userPicked;
             AppState.SettingsService.Save(settings);
-            AppLog.Info($"Persisted Steam install folder: \"{canonicalPath}\" (picked by hand: {userPicked})");
+            AppLog.Info($"Persisted Steam install folder: \"{canonicalPath}\" (picked by hand: {userPicked?.ToString() ?? "not decided yet"})");
         }
 
         return canonicalPath;
