@@ -15,6 +15,11 @@ internal sealed partial class SteamProcessService
     private const int ErrorCancelled = 1223;
     private const int ErrorElevationRequired = 740;
     private const uint ProcessQueryLimitedInformation = 0x1000;
+    private const int TokenElevationTypeClass = 18;
+    private const int TokenElevationTypeDefault = 1;
+
+    // GetCurrentProcessToken() from the Windows headers: a pseudo handle to this process's token that needs no closing.
+    private const nint CurrentProcessToken = -4;
 
     // Steam processes that can outlive steam.exe: the browser helper, the crash reporter and the Remote Play client.
     private static readonly string[] HelperProcessNames = ["steamwebhelper", "steamerrorreporter", "streaming_client"];
@@ -24,13 +29,15 @@ internal sealed partial class SteamProcessService
         var steamExe = Path.Combine(paths.InstallPath, "steam.exe");
         LogElevation(steamExe);
 
-        if (!IsSteamRunning())
+        var state = GetSteamState();
+        if (state == SteamState.NotRunning)
         {
             AppLog.Info("Steam is not running, nothing to close.");
             EndLeftoverHelpers(paths);
             return;
         }
 
+        ThrowIfOnlyInOtherSessions(state);
         AppLog.Info("Steam is running, trying to close it...");
         progress?.Report(Loc.T("Steam_Progress_StoppingSteam"));
 
@@ -46,8 +53,9 @@ internal sealed partial class SteamProcessService
 
                 shutdown?.WaitForExit(3000);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not InvalidOperationException)
             {
+                // StartSteam's own InvalidOperationException (Steam would run as another Windows user) stops the sign-in here, before Steam's login files are written.
                 AppLog.Warn($"Calling steam.exe -shutdown failed: {ex.Message}");
             }
         }
@@ -59,13 +67,15 @@ internal sealed partial class SteamProcessService
         // Steam writes the accounts it remembers as it closes, so it gets a while to finish before it is killed.
         for (var i = 0; i < 20; i++)
         {
-            if (!IsSteamRunning())
+            state = GetSteamState();
+            if (state == SteamState.NotRunning)
             {
                 AppLog.Info("Steam has exited.");
                 EndLeftoverHelpers(paths);
                 return;
             }
 
+            ThrowIfOnlyInOtherSessions(state);
             Thread.Sleep(1000);
         }
 
@@ -75,13 +85,15 @@ internal sealed partial class SteamProcessService
 
         for (var i = 0; i < 5; i++)
         {
-            if (!IsSteamRunning())
+            state = GetSteamState();
+            if (state == SteamState.NotRunning)
             {
                 AppLog.Info("Killed the Steam processes.");
                 EndLeftoverHelpers(paths);
                 return;
             }
 
+            ThrowIfOnlyInOtherSessions(state);
             Thread.Sleep(1000);
         }
 
@@ -181,6 +193,14 @@ internal sealed partial class SteamProcessService
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == ErrorElevationRequired && !startInfo.UseShellExecute)
         {
+            // A standard Windows account has no administrator token of its own, so the prompt asks for an administrator's password and Steam runs as
+            // that account, with its own registry and local.vdf. It would never see this sign-in, so stop with a clear message instead.
+            if (!IsLoaderElevated() && ReadElevationType() == TokenElevationTypeDefault)
+            {
+                AppLog.Error($"steam.exe needs administrator rights ({ex.Message}), but this Windows account is not an administrator, so Steam would run as another Windows user.");
+                throw new InvalidOperationException(Loc.T("Steam_Error_AdminSteamOtherUser"), ex);
+            }
+
             AppLog.Warn($"steam.exe needs administrator rights ({ex.Message}), starting it again so Windows asks for permission.");
             startInfo.UseShellExecute = true;
             throughShell = true;
@@ -191,8 +211,16 @@ internal sealed partial class SteamProcessService
     private static void LogElevation(string steamExe)
     {
         // "~ RUNASADMIN" here means Steam is set to run as administrator, which a loader without administrator rights can neither stop nor start without a Windows prompt.
+        // Elevation type 1 (default) without administrator means a standard Windows account, 3 (limited) an administrator account running without its rights.
         AppLog.Info(
-            $"Loader runs as administrator: {IsLoaderElevated()}  steam.exe compatibility flags: HKCU=\"{ReadCompatibilityLayers(Registry.CurrentUser, steamExe) ?? "(none)"}\"  HKLM=\"{ReadCompatibilityLayers(Registry.LocalMachine, steamExe) ?? "(none)"}\"");
+            $"Loader runs as administrator: {IsLoaderElevated()}  token elevation type: {ReadElevationType()}  steam.exe compatibility flags: HKCU=\"{ReadCompatibilityLayers(Registry.CurrentUser, steamExe) ?? "(none)"}\"  HKLM=\"{ReadCompatibilityLayers(Registry.LocalMachine, steamExe) ?? "(none)"}\"");
+    }
+
+    // TOKEN_ELEVATION_TYPE of this process's token: 1 default (no split token), 2 full (elevated), 3 limited (administrator without its rights). 0 when it cannot be read.
+    private static unsafe int ReadElevationType()
+    {
+        int elevationType;
+        return GetTokenInformation(CurrentProcessToken, TokenElevationTypeClass, &elevationType, sizeof(int), out _) ? elevationType : 0;
     }
 
     private static string? ReadCompatibilityLayers(RegistryKey hive, string exePath)
@@ -221,15 +249,53 @@ internal sealed partial class SteamProcessService
         }
     }
 
-    private static bool IsSteamRunning()
+    private enum SteamState
     {
-        var processes = Process.GetProcessesByName("steam");
-        foreach (var process in processes)
+        NotRunning,
+        InThisSession,
+        OnlyInOtherSessions
+    }
+
+    // steam.exe in any Windows session blocks the sign-in: another user's Steam may share this Steam folder and write loginusers.vdf back when it exits.
+    // The session only decides what the user is told.
+    private static SteamState GetSteamState()
+    {
+        var sessionId = CurrentSessionId();
+        var running = false;
+        var inThisSession = false;
+        foreach (var process in Process.GetProcessesByName("steam"))
         {
-            process.Dispose();
+            using (process)
+            {
+                running = true;
+                inThisSession |= IsInSession(process, sessionId);
+            }
         }
 
-        return processes.Length > 0;
+        return !running ? SteamState.NotRunning : inThisSession ? SteamState.InThisSession : SteamState.OnlyInOtherSessions;
+    }
+
+    // Neither steam.exe -shutdown nor a kill from this session reaches another Windows user's Steam, so waiting for it is pointless.
+    private static void ThrowIfOnlyInOtherSessions(SteamState state)
+    {
+        if (state == SteamState.OnlyInOtherSessions)
+        {
+            AppLog.Error("Steam is open only in another Windows user's session, aborting sign-in.");
+            throw new InvalidOperationException(Loc.T("Steam_Error_SteamInOtherWindowsUser"));
+        }
+    }
+
+    // A process whose session cannot be read (it exited meanwhile) counts as this session's, so the usual handling applies.
+    private static bool IsInSession(Process process, int sessionId)
+    {
+        try
+        {
+            return process.SessionId == sessionId;
+        }
+        catch
+        {
+            return true;
+        }
     }
 
     // Once steam.exe is gone, its helpers from the same Steam folder are ended too (as WareStore does), so none of them holds on to Steam's files
@@ -282,13 +348,21 @@ internal sealed partial class SteamProcessService
     }
 
     // Returns true when Windows refused to end a process, which means it runs as administrator and the loader does not.
+    // Processes in another Windows user's session are left alone, so a refusal there never counts.
     private static bool KillProcesses(string processName)
     {
+        var sessionId = CurrentSessionId();
         var accessDenied = false;
         foreach (var process in Process.GetProcessesByName(processName))
         {
             using (process)
             {
+                if (!IsInSession(process, sessionId))
+                {
+                    AppLog.Info($"Leaving process {processName} (PID={process.Id}) alone, it runs in another Windows user's session.");
+                    continue;
+                }
+
                 try
                 {
                     process.Kill(true);
@@ -328,6 +402,15 @@ internal sealed partial class SteamProcessService
         uint flags,
         char* exeName,
         ref uint size);
+
+    [LibraryImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static unsafe partial bool GetTokenInformation(
+        nint token,
+        int informationClass,
+        void* information,
+        uint length,
+        out uint returnLength);
 }
 
 internal static class ProcessStartInfoExtensions

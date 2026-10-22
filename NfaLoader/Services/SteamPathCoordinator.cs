@@ -37,13 +37,21 @@ internal static class SteamPathCoordinator
         // A saved folder that was only found automatically goes stale when Steam is moved or installed again elsewhere while the old folder keeps steam.exe.
         // Then the loader would stop the user's Steam and write the sign-in into a Steam they no longer use, so Steam's own location wins.
         var live = SteamPathService.FindLiveInstallPath(out var liveSource);
-        if (live is not null)
-        {
-            var liveNormalized = SteamPathService.NormalizeInstallPath(live);
-            var differs = !string.IsNullOrWhiteSpace(persisted) &&
-                !string.Equals(SteamPathService.NormalizeInstallPath(persisted), liveNormalized, StringComparison.OrdinalIgnoreCase);
+        var liveNormalized = live is null ? null : SteamPathService.NormalizeInstallPath(live);
+        var differs = liveNormalized is not null && !string.IsNullOrWhiteSpace(persisted) &&
+            !string.Equals(SteamPathService.NormalizeInstallPath(persisted), liveNormalized, StringComparison.OrdinalIgnoreCase);
 
-            if (!(settings.SteamInstallPathUserPicked && persistedValid))
+        // Settings saved before the flag existed load it as null. Those versions kept the saved folder while it had steam.exe and never recorded a pick by hand,
+        // so a saved folder that still works but is not the Steam in use is treated as picked by hand. Decided once: PersistCanonical below saves the answer.
+        var userPicked = settings.SteamInstallPathUserPicked ?? (persistedValid && differs);
+        if (settings.SteamInstallPathUserPicked is null && userPicked)
+        {
+            AppLog.Info($"Settings predate the picked-by-hand flag, keeping the saved Steam folder \"{persisted}\" (Steam last ran from \"{liveNormalized}\").");
+        }
+
+        if (liveNormalized is not null)
+        {
+            if (!(userPicked && persistedValid))
             {
                 if (differs)
                 {
@@ -62,7 +70,7 @@ internal static class SteamPathCoordinator
         if (persistedValid)
         {
             // Normalize to the real on-disk casing and write it back. This upgrades the all-lowercase, forward-slash paths written by old versions/HKCU once, so the path displays cleanly.
-            return PersistCanonical(settings, SteamPathService.NormalizeInstallPath(persisted!), settings.SteamInstallPathUserPicked);
+            return PersistCanonical(settings, SteamPathService.NormalizeInstallPath(persisted!), userPicked);
         }
 
         if (!string.IsNullOrWhiteSpace(persisted))
