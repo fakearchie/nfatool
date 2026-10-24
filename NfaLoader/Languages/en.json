@@ -3,7 +3,7 @@
   "name": "English",
   "fallback": "en",
   "strings": {
-    "Transfer_Title": "CS2 settings",
+    "Transfer_Title": "CS2 Settings",
     "Transfer_Hint": "Copy CS2 settings between accounts, with backups for every change.",
     "Transfer_Tab": "Copy and paste",
     "Transfer_BackupsTab": "Backups",
