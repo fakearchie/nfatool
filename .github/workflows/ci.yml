@@ -28,6 +28,9 @@ jobs:
       - name: Build
         run: dotnet build .\NfaLoader\NfaLoader.csproj -c Release -r win-x64 -p:Platform=x64 --no-restore
 
+      - name: Check CS2 settings transfers
+        run: dotnet run --project .\tests\cs2-settings-transfer\cs2-settings-transfer.csproj -c Release
+
       - name: Check the language file
         shell: pwsh
         run: |

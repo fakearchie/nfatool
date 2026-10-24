@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../NfaLoader/Services/cs2-settings-transfer-service.cs" Link="cs2-settings-transfer-service.cs" />
+    <Compile Include="../../NfaLoader/Services/VdfDocument.cs" Link="vdf-document.cs" />
+  </ItemGroup>
+</Project>

@@ -214,8 +214,6 @@ internal static class Cs2CloudPushWorker
         }
     }
 
-    // Check whether the signed-in Steam account's SteamID64 matches the expected target. If the ISteamUser interface is unavailable (wrong DLL version etc.), return true and let it through,
-    // so "missing the ability to check does not break the feature"; it then falls back to "push to whichever account is signed in".
     private static bool IsLoggedInAs(ulong expectedSteamId64)
     {
         try
@@ -223,8 +221,8 @@ internal static class Cs2CloudPushWorker
             var user = SteamworksNative.SteamAPI_SteamUser_v023();
             if (user == IntPtr.Zero)
             {
-                AppLog.Warn("[cs2push] Could not get the ISteamUser interface, skipping the signed-in account check.");
-                return true;
+                AppLog.Warn("[cs2push] Could not get the ISteamUser interface, refusing to write settings.");
+                return false;
             }
 
             var actual = SteamworksNative.SteamAPI_ISteamUser_GetSteamID(user);
@@ -238,8 +236,8 @@ internal static class Cs2CloudPushWorker
         }
         catch (EntryPointNotFoundException)
         {
-            AppLog.Warn("[cs2push] steam_api64.dll has no ISteamUser v023 export, skipping the signed-in account check.");
-            return true;
+            AppLog.Warn("[cs2push] steam_api64.dll has no ISteamUser v023 export, refusing to write settings.");
+            return false;
         }
     }
 
