@@ -1,0 +1,114 @@
+<Page
+    x:Class="NfaLoader.Pages.Cs2SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Page.Resources>
+        <Thickness x:Key="TransferPagePadding">32,24,32,16</Thickness>
+        <x:Double x:Key="TransferSectionGap">24</x:Double>
+        <x:Double x:Key="TransferFieldGap">12</x:Double>
+        <x:Double x:Key="TransferListHeight">220</x:Double>
+        <x:Double x:Key="TransferSourceWidth">380</x:Double>
+    </Page.Resources>
+    <Grid x:Name="PageRoot" Padding="{StaticResource TransferPagePadding}" RowSpacing="{StaticResource TransferSectionGap}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Grid ColumnSpacing="{StaticResource TransferSectionGap}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="{StaticResource TransferFieldGap}">
+                <TextBlock x:Name="TitleText" Style="{StaticResource PageTitleTextStyle}" />
+                <TextBlock x:Name="HintText" Style="{StaticResource PageSubtitleTextStyle}" />
+            </StackPanel>
+            <Button x:Name="RefreshButton" Grid.Column="1" Click="Refresh_Click" VerticalAlignment="Top" />
+        </Grid>
+        <Grid Grid.Row="1" RowSpacing="{StaticResource TransferSectionGap}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <SelectorBar x:Name="TransferModeSelector" SelectionChanged="TransferMode_Changed">
+                <SelectorBarItem x:Name="TransferTab">
+                    <SelectorBarItem.Icon><FontIcon Glyph="&#xE8C8;" /></SelectorBarItem.Icon>
+                </SelectorBarItem>
+                <SelectorBarItem x:Name="BackupsTab">
+                    <SelectorBarItem.Icon><FontIcon Glyph="&#xE81C;" /></SelectorBarItem.Icon>
+                </SelectorBarItem>
+            </SelectorBar>
+                <Grid x:Name="TransferPanel" Grid.Row="1" RowSpacing="{StaticResource TransferFieldGap}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <InfoBar x:Name="StoppedHint" IsOpen="True" IsClosable="False" Severity="Informational" />
+                    <Grid Grid.Row="1" ColumnSpacing="{StaticResource TransferSectionGap}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <ScrollViewer Width="{StaticResource TransferSourceWidth}" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                            <Border Style="{StaticResource CardBorderStyle}">
+                            <StackPanel Spacing="{StaticResource TransferSectionGap}">
+                                <StackPanel Spacing="{StaticResource TransferFieldGap}">
+                                    <TextBlock x:Name="SourceLabel" Style="{StaticResource SectionTitleTextStyle}" />
+                                    <ComboBox x:Name="SourceBox" HorizontalAlignment="Stretch" />
+                                </StackPanel>
+                                <StackPanel Spacing="{StaticResource TransferFieldGap}">
+                                    <TextBlock x:Name="CategoriesLabel" Style="{StaticResource SectionTitleTextStyle}" />
+                                    <CheckBox x:Name="ControlsCheck" IsChecked="True" />
+                                    <CheckBox x:Name="CrosshairCheck" IsChecked="True" />
+                                    <CheckBox x:Name="HudAudioCheck" IsChecked="True" />
+                                    <CheckBox x:Name="VideoCheck" />
+                                    <CheckBox x:Name="CustomCheck" />
+                                </StackPanel>
+                                <Button x:Name="CopyButton" Click="Copy_Click" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Stretch" />
+                                <TextBlock x:Name="SnapshotText" Style="{StaticResource PageSubtitleTextStyle}" IsTextSelectionEnabled="True" />
+                            </StackPanel>
+                            </Border>
+                        </ScrollViewer>
+                        <Border Grid.Column="1" Style="{StaticResource CardBorderStyle}">
+                        <Grid RowSpacing="{StaticResource TransferFieldGap}">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock x:Name="TargetsLabel" Style="{StaticResource SectionTitleTextStyle}" />
+                            <TextBox x:Name="SearchBox" Grid.Row="1" TextChanged="Search_Changed" />
+                            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="{StaticResource TransferFieldGap}">
+                                <Button x:Name="SelectVisibleButton" Click="SelectVisible_Click" />
+                                <Button x:Name="ClearSelectionButton" Click="ClearSelection_Click" />
+                            </StackPanel>
+                            <ListView x:Name="TargetsList" Grid.Row="3" SelectionMode="Multiple" SelectionChanged="Targets_Changed" />
+                            <TextBlock x:Name="SelectionText" Grid.Row="4" Style="{StaticResource PageSubtitleTextStyle}" />
+                            <Button x:Name="PasteButton" Grid.Row="5" Click="Paste_Click" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Stretch" />
+                        </Grid>
+                        </Border>
+                    </Grid>
+                    <ScrollViewer Grid.Row="2" MaxHeight="{StaticResource TransferListHeight}" VerticalScrollBarVisibility="Auto">
+                        <TextBlock x:Name="ResultText" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                    </ScrollViewer>
+                </Grid>
+                <ScrollViewer x:Name="BackupsPanel" Grid.Row="1" Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <Border Style="{StaticResource CardBorderStyle}">
+                    <StackPanel Spacing="{StaticResource TransferSectionGap}">
+                        <StackPanel Spacing="{StaticResource TransferFieldGap}">
+                            <TextBlock x:Name="BackupsLabel" Style="{StaticResource SectionTitleTextStyle}" />
+                            <TextBlock x:Name="BackupHintText" Style="{StaticResource PageSubtitleTextStyle}" />
+                        </StackPanel>
+                        <ComboBox x:Name="BackupsBox" HorizontalAlignment="Stretch" SelectionChanged="Backup_Changed" />
+                        <Button x:Name="RestoreButton" Click="Restore_Click" Style="{StaticResource AccentButtonStyle}" />
+                        <TextBlock x:Name="RestoreResultText" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                    </StackPanel>
+                    </Border>
+                </ScrollViewer>
+        </Grid>
+    </Grid>
+</Page>

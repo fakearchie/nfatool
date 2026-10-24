@@ -76,6 +76,13 @@
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem
+                    x:Name="Cs2SettingsNavItem"
+                    Tag="cs2Settings">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8C8;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem
                     x:Name="PersonalizationNavItem"
                     Tag="personalization">
                     <NavigationViewItem.Icon>

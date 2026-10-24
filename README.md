@@ -33,6 +33,7 @@ Paste a login token and Steam starts already signed in. No password, no authenti
 - **Replacements.** 3 per order, within 6 hours of delivery. The card shows the time left, and a check that finds the account still working uses none.
 - **Purchases are never lost.** An interrupted purchase is kept and can be finished later without paying twice.
 - **Loadouts.** Build a T and CT loadout once and apply it to any account without launching CS2.
+- **CS2 settings.** Copy controls, crosshair, HUD and audio, video, or custom configs from a local account. Paste into one or more accounts, including cached accounts with a recorded Steam ID. Close Steam and CS2 first. Each target gets a backup before its files change; restore backups from the CS2 settings page. Backups are kept in the app data folder under `cs2-settings-backups`.
 - **Clear Workshop.** Unsubscribe an account from every CS2 Workshop item before it downloads gigabytes on first launch.
 
 ## Your nfa.pub API key
